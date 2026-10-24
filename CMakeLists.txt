@@ -36,6 +36,9 @@ option(ENABLE_ANALYTICS "Enables opt-in Analytics collection" OFF)
 # Playback builds for Slippi include some extra UI tweaks
 option(IS_PLAYBACK "Enable Playback changes" OFF)
 
+# This fork's native, single-window match panel. No wallet or game-data connection yet.
+option(ENABLE_SATS_ARENA "Show the integrated Sats Arena preview sidebar" ON)
+
 # Name of the Dolphin distributor. If you redistribute Dolphin builds (forks,
 # unofficial builds) please consider identifying your distribution with a
 # unique name here.

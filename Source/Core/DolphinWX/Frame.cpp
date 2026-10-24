@@ -3,6 +3,9 @@
 // Refer to the license.txt file included.
 
 #include "DolphinWX/Frame.h"
+#ifdef SATS_ARENA
+#include "DolphinWX/SatsArenaPanel.h"
+#endif
 
 #include <atomic>
 #include <cstddef>
@@ -352,6 +355,13 @@ CFrame::CFrame(wxFrame *parent, wxWindowID id, const wxString &title, wxRect geo
 	// Main panel
 	// This panel is the parent for rendering and it holds the gamelistctrl
 	m_Panel = new wxPanel(this, IDM_MPANEL, wxDefaultPosition, wxDefaultSize, 0);
+	wxPanel* game_list_parent = m_Panel;
+#ifdef SATS_ARENA
+	m_GamePanel = new wxPanel(m_Panel, wxID_ANY, wxDefaultPosition, wxDefaultSize, 0);
+	m_GamePanel->SetBackgroundColour(*wxBLACK);
+	game_list_parent = m_GamePanel;
+	SetMinSize(wxSize(960, 640));
+#endif
 
 	// macOS dark mode with a sunken border produces a striking white border around 
 	// the game list. wxSIMPLE_BORDER looks fine in both macOS light/dark mode.
@@ -361,13 +371,19 @@ CFrame::CFrame(wxFrame *parent, wxWindowID id, const wxString &title, wxRect geo
 	long game_list_style = wxLC_REPORT | wxSUNKEN_BORDER | wxLC_ALIGN_LEFT;
 #endif
 
-	m_GameListCtrl = new CGameListCtrl(m_Panel, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+	m_GameListCtrl = new CGameListCtrl(game_list_parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
 										game_list_style);
 	m_GameListCtrl->Bind(wxEVT_LIST_ITEM_ACTIVATED, &CFrame::OnGameListCtrlItemActivated, this);
 
 	wxBoxSizer *sizerPanel = new wxBoxSizer(wxHORIZONTAL);
 	sizerPanel->Add(m_GameListCtrl, 1, wxEXPAND | wxALL);
-	m_Panel->SetSizer(sizerPanel);
+	game_list_parent->SetSizer(sizerPanel);
+#ifdef SATS_ARENA
+	wxBoxSizer* arena_layout = new wxBoxSizer(wxHORIZONTAL);
+	arena_layout->Add(m_GamePanel, 1, wxEXPAND);
+	arena_layout->Add(new SatsArenaPanel(m_Panel), 0, wxEXPAND);
+	m_Panel->SetSizer(arena_layout);
+#endif
 	// ---------------
 
 	// Manager

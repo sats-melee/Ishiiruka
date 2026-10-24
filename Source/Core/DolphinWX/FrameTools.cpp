@@ -652,6 +652,13 @@ void CFrame::StartGame(const std::string& filename)
 	GetToolBar()->EnableTool(IDM_PLAY, false);
 	GetMenuBar()->FindItem(IDM_PLAY)->Enable(false);
 
+#ifdef SATS_ARENA
+	// A single top-level window owns both the game and the arena, including fullscreen.
+	// Do this on every boot so a video-settings change cannot separate the two again.
+	SConfig::GetInstance().bRenderToMain = true;
+	SConfig::GetInstance().bRenderWindowAutoSize = false;
+#endif
+
 	if (SConfig::GetInstance().bRenderToMain)
 	{
 		// Game has been started, hide the game list
@@ -659,6 +666,10 @@ void CFrame::StartGame(const std::string& filename)
 		m_GameListCtrl->Hide();
 
 		m_RenderParent = m_Panel;
+#ifdef SATS_ARENA
+		m_GamePanel->Layout();
+		m_RenderParent = m_GamePanel;
+#endif
 		m_RenderFrame = this;
 		if (SConfig::GetInstance().bKeepWindowOnTop)
 			m_RenderFrame->SetWindowStyle(m_RenderFrame->GetWindowStyle() | wxSTAY_ON_TOP);
@@ -1001,6 +1012,9 @@ void CFrame::OnStopped()
 
 	m_GameListCtrl->Enable();
 	m_GameListCtrl->Show();
+#ifdef SATS_ARENA
+	m_GamePanel->Layout();
+#endif
 	m_GameListCtrl->SetFocus();
 	UpdateGUI();
 }

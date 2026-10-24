@@ -133,6 +133,10 @@ endif()
 
 if(wxWidgets_FOUND)
 	add_executable("${DOLPHIN_EXE}" ${SRCS} ${GUI_SRCS})
+	if(ENABLE_SATS_ARENA)
+		target_sources("${DOLPHIN_EXE}" PRIVATE SatsArenaPanel.cpp)
+		target_compile_definitions("${DOLPHIN_EXE}" PRIVATE SATS_ARENA)
+	endif()
 	target_link_libraries("${DOLPHIN_EXE}" ${LIBS} ${WXLIBS})
 
 	# Link SlippiRustExtensions in.
