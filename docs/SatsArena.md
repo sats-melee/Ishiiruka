@@ -22,13 +22,15 @@ financial authorization.
 
 The observer replaces unfinalized rollback frames and publishes each finalized
 frame only once. Separate bounded histories keep the latest 200 observations and
-200 game credits, with at most 300 unfinalized frames
+100 game credits, with at most 300 unfinalized frames
 are retained. A 100 ms GUI timer reads a mutex-protected snapshot; the emulation
 thread never calls wxWidgets. New matches clear the log; game end/stop preserves
 the completed log but discards speculative frames. No log files are written.
 
-Uncheck **Follow live** to freeze the displayed log and scroll back. Collection
-continues in the bounded history. Recheck it to show the latest events.
+The log always shows the latest **100 game-credit messages**, oldest to newest,
+and automatically scrolls to the bottom when a message arrives or the window is
+resized. No follow/pause control is needed. Match totals are not reduced when old
+messages are evicted. `MAX_CREDIT_MESSAGES` in `SatsArenaTracker.h` sets the limit.
 
 Run the standalone tracker tests (no emulator or ROM needed):
 
@@ -121,7 +123,8 @@ To build without this fork's sidebar, configure CMake with
 - Close and relaunch: no manual positioning or controller reconfiguration.
 - Confirm labels say preview/no real money, including at short window heights.
 - Begin a two-player VS game, hit each player, and compare log percent with HUD.
-- Uncheck Follow live, scroll, and recheck it to catch up.
+- Trade enough hits to overflow the visible log: new messages stay visible at the bottom.
+- After more than 100 credits, only the latest 100 remain; the match total continues increasing.
 - End/start another match: old events clear and new damage begins at a fresh baseline.
 
 Source changes are licensed under GPLv2+, like the surrounding emulator code.

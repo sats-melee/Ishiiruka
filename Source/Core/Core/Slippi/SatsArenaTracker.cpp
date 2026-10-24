@@ -163,7 +163,7 @@ void Tracker::Publish(const DamageEvent& event)
 	{
 		++m_snapshot.total_credit_events;
 		m_snapshot.credit_events.push_back(event);
-		if (m_snapshot.credit_events.size() > MAX_EVENTS)
+		if (m_snapshot.credit_events.size() > MAX_CREDIT_MESSAGES)
 			m_snapshot.credit_events.pop_front();
 	}
 	else

@@ -280,6 +280,37 @@ void CreditDiagnostics()
 	Check(tracker.Read().credit_stream_incomplete, "truncated credit accepted");
 }
 
+void RecentCreditHistory()
+{
+	Tracker tracker;
+	Feed(tracker, Start());
+	Sample(tracker, 0, 0, 0);
+	Book(tracker, 0, 0);
+	for (int frame = 1; frame <= 450; ++frame)
+	{
+		Sample(tracker, frame, 0, static_cast<float>(frame));
+		Feed(tracker, Credits(frame, 1));
+		Book(tracker, frame, frame);
+	}
+	const auto state = tracker.Read();
+	Check(state.total_credit_events == 450 && state.total_events == 450,
+	      "history eviction changed match totals");
+	Check(state.credit_events.size() == SatsArena::MAX_CREDIT_MESSAGES,
+	      "visible credit history is not bounded to its message limit");
+	Check(state.credit_events.front().frame == 351 && state.credit_events.back().frame == 450,
+	      "visible history did not retain the latest credits in chronological order");
+	for (const auto& event : state.credit_events)
+		Check(event.kind == SatsArena::EventKind::GameCredit,
+		      "unverified percent observation entered the visible log");
+	Feed(tracker, Start());
+	Check(tracker.Read().credit_events.empty(), "new match retained visible messages");
+	Sample(tracker, 0, 0, 0);
+	Book(tracker, 0, 0);
+	Sample(tracker, 1, 0, 8);
+	Book(tracker, 1, 1);
+	Check(tracker.Read().credit_events.empty(), "percent-only damage entered the visible log");
+}
+
 void InspectReplay(const char* path)
 {
 	std::ifstream input(path, std::ios::binary);
@@ -324,7 +355,8 @@ int main(int argc, char** argv)
 	UnsupportedAndTruncated();
 	BoundedAndConcurrent();
 	CreditDiagnostics();
-	std::cout << "PASS: finalization, rollback, duplicates, resets, invalid data, source hints, bounds, concurrency\n";
+	RecentCreditHistory();
+	std::cout << "PASS: finalization, rollback, duplicates, resets, invalid data, credits, last-100 history, bounds, concurrency\n";
 	if (argc == 2)
 		InspectReplay(argv[1]);
 }

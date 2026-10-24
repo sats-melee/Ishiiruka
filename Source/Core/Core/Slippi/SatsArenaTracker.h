@@ -13,6 +13,7 @@
 namespace SatsArena
 {
 constexpr std::size_t MAX_EVENTS = 200;
+constexpr std::size_t MAX_CREDIT_MESSAGES = 100;
 constexpr std::size_t MAX_PENDING_FRAMES = 300;
 constexpr std::uint8_t CREDIT_COMMAND = 0xe6;
 constexpr std::size_t MAX_CREDITS_PER_FRAME = 32;

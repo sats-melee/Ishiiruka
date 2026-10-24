@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <utility>
 #include <wx/dcbuffer.h>
-#include <wx/checkbox.h>
 #include <wx/settings.h>
 #include <wx/textctrl.h>
 
@@ -114,13 +113,6 @@ SatsArenaPanel::SatsArenaPanel(wxWindow* parent)
 	m_log->SetForegroundColour(TEXT);
 	m_log->SetFont(wxFont(9, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 	m_log->SetName("Finalized player damage log");
-	m_follow = new wxCheckBox(this, wxID_ANY, "Follow live");
-	m_follow->SetValue(true);
-	m_follow->SetForegroundColour(MUTED);
-	m_follow->SetBackgroundColour(BACKGROUND);
-	m_follow->SetFont(wxFont(8, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
-	m_follow->SetToolTip("Uncheck to pause the view and scroll. Events continue collecting (latest 200).");
-	m_follow->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) { UpdateLog(true); });
 	Bind(wxEVT_PAINT, &SatsArenaPanel::OnPaint, this);
 	Bind(wxEVT_SIZE, [this](wxSizeEvent& event) {
 		LayoutActivity();
@@ -140,13 +132,13 @@ SatsArenaPanel::~SatsArenaPanel()
 
 void SatsArenaPanel::LayoutActivity()
 {
-	if (!m_log || !m_follow)
+	if (!m_log)
 		return;
 	const auto layout = Measure(GetClientSize());
 	const auto px = [&layout](int value) { return static_cast<int>(value * layout.scale); };
-	m_follow->SetSize(px(layout.width - 123), px(layout.activity_y - 3), px(105), px(22));
 	m_log->SetSize(px(22), px(layout.activity_y + 40), px(layout.width - 44),
 	               px(layout.footer_y - layout.activity_y - 54));
+	m_log->ShowPosition(m_log->GetLastPosition());
 }
 
 void SatsArenaPanel::UpdateLog(bool force)
@@ -156,8 +148,6 @@ void SatsArenaPanel::UpdateLog(bool force)
 		return;
 	m_snapshot = std::move(snapshot);
 	Refresh(false);
-	if (!m_follow->GetValue())
-		return; // Freeze the view for reading; the bounded tracker keeps collecting.
 	wxString text;
 	if (m_snapshot.credit_stream_incomplete)
 		text += "WARNING: credit capture incomplete.\nNot suitable for accounting.\n\n";
@@ -177,10 +167,12 @@ void SatsArenaPanel::UpdateLog(bool force)
 		text += wxString::Format("f%d  CREDIT P%d%s -> P%d%s +%.1f\n", event.frame,
 		                         event.attacker + 1, event.attacker_follower ? "(Nana)" : "",
 		                         event.victim + 1, event.victim_follower ? "(Nana)" : "", event.amount);
-		text += wxString::Format("  Game-credited; attack %u, #%u\n  Nominal, not applied percent.\n\n",
+		text += wxString::Format("  Attack %u, #%u\n\n",
 		                         event.attack_id, unsigned(event.ordinal));
 	}
 	m_log->ChangeValue(text);
+	// Follow the newest message on every update without taking focus from the game.
+	m_log->SetInsertionPointEnd();
 	m_log->ShowPosition(m_log->GetLastPosition());
 }
 
@@ -223,8 +215,10 @@ void SatsArenaPanel::OnPaint(wxPaintEvent&)
 
 	const int footer_y = layout.footer_y;
 	Label(dc, "Damage log", margin, y, 10, TEXT, true);
-	Label(dc, wxString::Format("%llu credited | latest 200",
-	                          static_cast<unsigned long long>(m_snapshot.total_credit_events)),
+	Label(dc, "AUTO-SCROLL", width - 103, y + 2, 8, MUTED);
+	Label(dc, wxString::Format("%llu credited | showing last %u",
+	                          static_cast<unsigned long long>(m_snapshot.total_credit_events),
+	                          static_cast<unsigned>(SatsArena::MAX_CREDIT_MESSAGES)),
 	      margin, y + 20, 8, MUTED);
 
 	const int button_width = (content_width - 10) / 2;
