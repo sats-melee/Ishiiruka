@@ -136,8 +136,16 @@ if(wxWidgets_FOUND)
 	if(ENABLE_SATS_ARENA)
 		target_sources("${DOLPHIN_EXE}" PRIVATE SatsArenaPanel.cpp)
 		target_compile_definitions("${DOLPHIN_EXE}" PRIVATE SATS_ARENA)
+		set(SATS_ARENA_ENGINE_DIR "${CMAKE_SOURCE_DIR}/../sats-arena" CACHE PATH "Shared Sats Arena Rust workspace")
+		if(EXISTS "${SATS_ARENA_ENGINE_DIR}/local/Cargo.toml")
+			corrosion_import_crate(MANIFEST_PATH "${SATS_ARENA_ENGINE_DIR}/Cargo.toml" CRATES sats-arena-local)
+			target_sources("${DOLPHIN_EXE}" PRIVATE SatsArenaLocal.cpp)
+			target_include_directories("${DOLPHIN_EXE}" PRIVATE "${SATS_ARENA_ENGINE_DIR}/local/include")
+			target_link_libraries("${DOLPHIN_EXE}" PRIVATE sats_arena_local)
+			target_compile_definitions("${DOLPHIN_EXE}" PRIVATE SATS_ARENA_LOCAL)
+		endif()
 	endif()
-	target_link_libraries("${DOLPHIN_EXE}" ${LIBS} ${WXLIBS})
+	target_link_libraries("${DOLPHIN_EXE}" PUBLIC ${LIBS} ${WXLIBS})
 
 	# Link SlippiRustExtensions in.
 	#

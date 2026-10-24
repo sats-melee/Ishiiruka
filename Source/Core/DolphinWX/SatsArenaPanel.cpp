@@ -9,6 +9,10 @@
 #include <wx/dcbuffer.h>
 #include <wx/settings.h>
 #include <wx/textctrl.h>
+#ifdef SATS_ARENA_LOCAL
+#include <wx/button.h>
+#include "DolphinWX/SatsArenaLocal.h"
+#endif
 
 namespace
 {
@@ -113,6 +117,10 @@ SatsArenaPanel::SatsArenaPanel(wxWindow* parent)
 	m_log->SetForegroundColour(TEXT);
 	m_log->SetFont(wxFont(9, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 	m_log->SetName("Finalized player damage log");
+#ifdef SATS_ARENA_LOCAL
+	m_funding = new wxButton(this, wxID_ANY, "Local funding demo (FAKE)");
+	m_funding->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { SatsArenaLocal::ShowFunding(this); });
+#endif
 	Bind(wxEVT_PAINT, &SatsArenaPanel::OnPaint, this);
 	Bind(wxEVT_SIZE, [this](wxSizeEvent& event) {
 		LayoutActivity();
@@ -139,6 +147,9 @@ void SatsArenaPanel::LayoutActivity()
 	m_log->SetSize(px(22), px(layout.activity_y + 40), px(layout.width - 44),
 	               px(layout.footer_y - layout.activity_y - 54));
 	m_log->ShowPosition(m_log->GetLastPosition());
+#ifdef SATS_ARENA_LOCAL
+	m_funding->SetSize(px(20), px(layout.footer_y), px(layout.width - 40), px(36));
+#endif
 }
 
 void SatsArenaPanel::UpdateLog(bool force)
@@ -221,11 +232,13 @@ void SatsArenaPanel::OnPaint(wxPaintEvent&)
 	                          static_cast<unsigned>(SatsArena::MAX_CREDIT_MESSAGES)),
 	      margin, y + 20, 8, MUTED);
 
+#ifndef SATS_ARENA_LOCAL
 	const int button_width = (content_width - 10) / 2;
 	Box(dc, margin, footer_y, button_width, 36, wxColour(30, 40, 27), wxColour(47, 59, 42), 7);
 	Label(dc, "Fund pot (soon)", margin + 17, footer_y + 12, 9, wxColour(140, 157, 117));
 	Box(dc, margin + button_width + 10, footer_y, button_width, 36, wxColour(27, 32, 39), BORDER, 7);
 	Label(dc, "Withdraw (soon)", margin + button_width + 25, footer_y + 12, 9, MUTED);
+#endif
 	Label(dc, "Live damage. No real money.", margin, footer_y + 53, 9, TEXT, true);
 	Label(dc, m_snapshot.credit_stream_seen ? "Game credits are nominal, not applied %." : "Credit hook: waiting for local match data.",
 	      margin, footer_y + 73, 8, MUTED);

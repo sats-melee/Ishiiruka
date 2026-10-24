@@ -10,7 +10,8 @@ if [[ -f /.flatpak-info || -n "${FLATPAK_ID:-}" ]]; then
     echo "Run this script from Konsole, or enable flatpak-spawn host access." >&2
     exit 1
   fi
-  exec flatpak-spawn --host /bin/bash "$ROOT/Tools/arena/start.sh" "$@"
+  exec flatpak-spawn --host --env="SATS_ARENA_FAKE_LOCAL=${SATS_ARENA_FAKE_LOCAL:-1}" \
+    /bin/bash "$ROOT/Tools/arena/start.sh" "$@"
 fi
 
 export PATH="${PATH:-}:/usr/local/bin:/usr/bin:/bin"
@@ -56,5 +57,15 @@ PY
   fi
 fi
 
+audio_env=()
+pulse_socket="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pulse/native"
+if [[ -S "$pulse_socket" ]]; then
+  # Native game audio uses Dolphin's Pulse backend; Rust music uses ALSA/CPAL.
+  # Route both to the existing host server without changing system audio config.
+  audio_env+=("PULSE_SERVER=${PULSE_SERVER:-unix:$pulse_socket}")
+  audio_env+=("ALSA_CONFIG_PATH=$ROOT/Tools/arena/alsa-pulse.conf")
+fi
+
 exec distrobox enter --name slippi-arena-build --no-tty -- \
-  env GDK_BACKEND=x11 "$BINARY" --user "$USER_DIR" "${args[@]}"
+  env GDK_BACKEND=x11 "SATS_ARENA_FAKE_LOCAL=${SATS_ARENA_FAKE_LOCAL:-1}" \
+  "${audio_env[@]}" "$BINARY" --user "$USER_DIR" "${args[@]}"

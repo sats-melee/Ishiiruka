@@ -97,6 +97,21 @@ The start script also works from VS Code's Flatpak terminal: it uses
 `flatpak-spawn --host` to reach the host's Distrobox installation. If host access
 is denied, use Konsole instead. It does not install Distrobox inside Flatpak.
 
+### Audio in the container
+
+In Dolphin's audio settings, select **Pulse** as the backend. SteamOS's PipeWire
+server provides the PulseAudio-compatible socket. The launcher routes the Rust
+music player's ALSA default device through that same socket using a process-local
+`ALSA_CONFIG_PATH`; it does not change host audio settings. The container needs
+`libasound2-plugins` (included by setup). Existing containers can add it with:
+
+```sh
+distrobox enter -n slippi-arena-build -- sudo apt-get install -y libasound2-plugins
+```
+
+The launcher respects an explicit `PULSE_SERVER` and otherwise uses the current
+user's host socket when available. Volume and output-device choices remain yours.
+
 The build pins the upstream Rust version (1.88.0); its compiler/cache live under
 the ignored `build-tools/` directory. Build output is under `build-arena/`.
 Concurrency is intentionally limited for this machine's RAM.

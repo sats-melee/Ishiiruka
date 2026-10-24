@@ -9,6 +9,7 @@
 #include "Core/Slippi/SatsArenaTracker.h"
 
 class wxTextCtrl;
+class wxButton;
 
 // All widgets stay on the GUI thread; gameplay arrives as bounded snapshots.
 class SatsArenaPanel final : public wxPanel
@@ -24,6 +25,9 @@ private:
 	void LayoutActivity();
 	void UpdateLog(bool force = false);
 	wxTextCtrl* m_log = nullptr;
+#ifdef SATS_ARENA_LOCAL
+	wxButton* m_funding = nullptr;
+#endif
 	wxTimer m_timer;
 	SatsArena::Snapshot m_snapshot;
 };
