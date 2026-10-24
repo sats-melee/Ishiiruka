@@ -1,0 +1,90 @@
+// Copyright 2026 Sats Arena contributors
+// Licensed under GPLv2+
+// Refer to the license.txt file included.
+#pragma once
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <deque>
+#include <map>
+#include <mutex>
+
+namespace SatsArena
+{
+constexpr std::size_t MAX_EVENTS = 200;
+constexpr std::size_t MAX_PENDING_FRAMES = 300;
+constexpr std::uint8_t CREDIT_COMMAND = 0xe6;
+constexpr std::size_t MAX_CREDITS_PER_FRAME = 32;
+constexpr std::size_t CREDIT_PACKET_SIZE = 8 + 12 * MAX_CREDITS_PER_FRAME;
+
+enum class TrackingState { Waiting, LocalMatch, Unsupported, Finished };
+enum class EventKind { PercentChange, GameCredit };
+
+struct DamageEvent
+{
+	std::int32_t frame;
+	std::uint8_t victim;
+	int last_hit_by; // A hint, NOT verified attribution of this damage.
+	float amount;
+	float percent;
+	EventKind kind = EventKind::PercentChange;
+	int attacker = -1;
+	bool attacker_follower = false;
+	bool victim_follower = false;
+	std::uint32_t attack_id = 0;
+	std::uint8_t ordinal = 0;
+};
+
+struct Snapshot
+{
+	TrackingState status = TrackingState::Waiting;
+	std::uint64_t revision = 0;
+	std::uint64_t total_events = 0;
+	std::deque<DamageEvent> events;
+	std::deque<DamageEvent> credit_events; // Credit-only history for the visible log.
+	std::uint64_t total_credit_events = 0;
+	bool credit_stream_seen = false;
+	bool credit_stream_incomplete = false;
+};
+
+// Bounded observer of the existing replay protocol. No emulated-memory reads,
+// UI callbacks, file I/O, or payments. All published events are finalized.
+class Tracker
+{
+public:
+	void Process(const std::uint8_t* data, std::size_t length);
+	void Stop();
+	Snapshot Read() const;
+
+private:
+	struct PlayerFrame
+	{
+		bool present = false;
+		float percent = 0;
+		std::uint8_t stocks = 0;
+		std::uint8_t last_hit_by = 255;
+		std::int32_t frame = -124;
+	};
+	void Start(const std::uint8_t* data, std::size_t length);
+	void Finalize(std::int32_t frame);
+	void CreditBatch(const std::uint8_t* data, std::size_t length);
+	void Publish(const DamageEvent& event);
+	void MarkIncomplete();
+	struct CreditFrame
+	{
+		bool overflow = false;
+		std::deque<DamageEvent> events;
+	};
+	mutable std::mutex m_mutex;
+	Snapshot m_snapshot;
+	std::array<bool, 4> m_active = {};
+	std::array<PlayerFrame, 4> m_previous = {};
+	std::map<std::int32_t, std::array<PlayerFrame, 4>> m_pending;
+	std::map<std::int32_t, CreditFrame> m_pending_credits;
+	std::int32_t m_finalized = -124;
+	std::int32_t m_latest_received = -124;
+};
+
+Tracker& GetTracker();
+}

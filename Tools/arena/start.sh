@@ -1,6 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# VS Code's Flatpak terminal cannot see the host's Distrobox installation.
+# Re-enter on the host before inspecting binaries, profiles, or containers.
+if [[ -f /.flatpak-info || -n "${FLATPAK_ID:-}" ]]; then
+  if ! command -v flatpak-spawn >/dev/null 2>&1; then
+    echo "This terminal is inside Flatpak and cannot access host tools." >&2
+    echo "Run this script from Konsole, or enable flatpak-spawn host access." >&2
+    exit 1
+  fi
+  exec flatpak-spawn --host /bin/bash "$ROOT/Tools/arena/start.sh" "$@"
+fi
+
+export PATH="${PATH:-}:/usr/local/bin:/usr/bin:/bin"
+if ! command -v distrobox >/dev/null 2>&1; then
+  echo "Distrobox was not found on the host. Run this launcher on the SteamOS machine where the build container was created." >&2
+  exit 1
+fi
+
 BINARY="$ROOT/build-arena/Binaries/dolphin-emu"
 USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/SatsArenaDolphin"
 

@@ -155,10 +155,8 @@ private:
 	CConfigMain* m_main_config_dialog = nullptr;
 
 	wxPanel* m_Panel = nullptr;
-#ifdef SATS_ARENA
 	// The graphics backend gets only this child, never the sidebar's native surface.
 	wxPanel* m_GamePanel = nullptr;
-#endif
 	CRenderFrame* m_RenderFrame = nullptr;
 	wxWindow* m_RenderParent = nullptr;
 	CLogWindow* m_LogWindow = nullptr;

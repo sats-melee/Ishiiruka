@@ -107,7 +107,8 @@ class CEXISlippi : public IEXIDevice
 		CMD_PREMADE_TEXT_LOAD = 0xE2,
 		CMD_GET_RANK = 0xE3,
 		CMD_FETCH_RANK = 0xE4,
-		CMD_GET_RANK_VISIBILITY = 0xE5
+		CMD_GET_RANK_VISIBILITY = 0xE5,
+		CMD_ARENA_CREDIT_BATCH = 0xE6 // Private local diagnostics; never recorded or forwarded.
 	};
 
 	enum
@@ -196,6 +197,7 @@ class CEXISlippi : public IEXIDevice
 	    {CMD_GET_RANK, 0x0},
 	    {CMD_FETCH_RANK, 0x0},
 	    {CMD_GET_RANK_VISIBILITY, 0x0},
+	    {CMD_ARENA_CREDIT_BATCH, 391}, // 392-byte fixed packet, including command.
 	};
 
 	struct WriteMessage

@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "protocol": 1,
+  "command": "0xE6",
+  "packet_bytes": 392,
+  "game": "GALE01r2",
+  "mode": "local VS diagnostics only",
+  "entry": "0x8003EB30",
+  "expected_prologue": "7c0802a690010004",
+  "asm_base_commit": "abbe0ce9f25bcdebf419a0153d7f77114fe41911",
+  "gecko_commit": "edba7fd9efcd5a4df753aee7a938cb2ff6604690",
+  "source_sha256": {
+    "Arena/CaptureCredit.asm": "675b3557836b54409e3da80a4525262e3b394b908dfe3d8ee19cf949c5f91329",
+    "Recording/Recording.s": "b0193edb3073d94beb2f26dca62785f33599d31ac1bb6108966d0478aabbf38b",
+    "Recording/SendFrameStart.s": "b4f21288da99a1fcf6c30d8c59a3630129c05d1ffa4d2fd28264f0419fb023a9",
+    "Recording/FlushFrameBuffer.asm": "7d914768ba6e8530d73903314d31ebc34874b5a24f10904431a5d9dce1933834",
+    "build-arena.sh": "55e491b4ba007eae59081e2550346e19037a7cc687f009bf944dc7d2fb38caf7"
+  },
+  "codeset_sha256": "365d3e75aa0db155eb759c0fbbfc6b46dd37b7dfb8532859f8edde13d732396f",
+  "not_for_settlement": true
+}

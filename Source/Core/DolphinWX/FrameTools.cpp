@@ -62,6 +62,9 @@
 #include "DolphinWX/Debugger/WatchWindow.h"
 #include "DolphinWX/FifoPlayerDlg.h"
 #include "DolphinWX/Frame.h"
+#ifdef SATS_ARENA
+#include "Core/Slippi/SatsArenaTracker.h"
+#endif
 #include "DolphinWX/GameListCtrl.h"
 #include "DolphinWX/Globals.h"
 #include "DolphinWX/ISOFile.h"
@@ -950,6 +953,9 @@ bool CFrame::TriggerSTMPowerEvent()
 
 void CFrame::OnStopped()
 {
+#ifdef SATS_ARENA
+	SatsArena::GetTracker().Stop();
+#endif
 	m_confirmStop = false;
 	m_tried_graceful_shutdown = false;
 

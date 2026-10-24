@@ -311,3 +311,7 @@ if(UNIX)
 endif(UNIX)
 
 add_dolphin_library(core "${SRCS}" "${LIBS}")
+if(ENABLE_SATS_ARENA)
+	target_sources(core PRIVATE Slippi/SatsArenaTracker.cpp)
+	set_property(SOURCE HW/EXI_DeviceSlippi.cpp APPEND PROPERTY COMPILE_DEFINITIONS SATS_ARENA)
+endif()

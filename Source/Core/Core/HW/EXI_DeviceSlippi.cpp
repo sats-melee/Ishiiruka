@@ -7,6 +7,9 @@
 #include "Core/Slippi/SlippiPlayback.h"
 #include "Core/Slippi/SlippiPremadeText.h"
 #include "Core/Slippi/SlippiReplayComm.h"
+#ifdef SATS_ARENA
+#include "Core/Slippi/SatsArenaTracker.h"
+#endif
 #include <SlippiLib/SlippiGame.h>
 
 #include <semver/include/semver200.h>
@@ -3452,8 +3455,23 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
 		}
 
 		u32 payloadLen = payloadSizes[byte];
+		if (byte == CMD_ARENA_CREDIT_BATCH && (_uSize - bufLoc < 392 || payloadLen != 391))
+		{
+			ERROR_LOG(SLIPPI, "Rejected truncated or incorrectly sized Arena diagnostic packet");
+			return;
+		}
+#ifdef SATS_ARENA
+		// Observe only a complete, bounded replay-protocol message. No GUI work
+		// runs on this thread, and recording/network behavior remains unchanged.
+		if (payloadLen < _uSize - bufLoc)
+			SatsArena::GetTracker().Process(&memPtr[bufLoc], payloadLen + 1);
+#endif
 		switch (byte)
 		{
+		case CMD_ARENA_CREDIT_BATCH:
+			// Observed above in Arena builds. Never send private diagnostics to
+			// replay files, spectators, the Rust reporter, or the peer.
+			break;
 		case CMD_RECEIVE_GAME_END:
 			writeToFileAsync(&memPtr[bufLoc], payloadLen + 1, "close");
 			m_slippiserver->write(&memPtr[bufLoc], payloadLen + 1);
