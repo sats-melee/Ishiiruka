@@ -14,9 +14,11 @@
 namespace SatsArena
 {
 constexpr std::size_t MAX_EVENTS = 200;
-constexpr std::size_t MAX_CREDIT_MESSAGES = 100;
+constexpr std::size_t MAX_CREDIT_MESSAGES = 4096; // Bounded ordered payment handoff.
 constexpr std::size_t MAX_PENDING_FRAMES = 300;
 constexpr std::uint8_t CREDIT_COMMAND = 0xe6;
+constexpr std::uint8_t RESULT_COMMAND = 0xe8;
+constexpr std::size_t RESULT_PACKET_SIZE = 16;
 constexpr std::size_t MAX_CREDITS_PER_FRAME = 32;
 constexpr std::size_t CREDIT_PACKET_SIZE = 8 + 12 * MAX_CREDITS_PER_FRAME;
 
@@ -36,6 +38,7 @@ struct DamageEvent
 	bool victim_follower = false;
 	std::uint32_t attack_id = 0;
 	std::uint8_t ordinal = 0;
+	std::uint64_t sequence = 0; // Monotonic within the match; zero for percent observations.
 };
 
 struct Snapshot
@@ -48,7 +51,12 @@ struct Snapshot
 	std::deque<DamageEvent> credit_events; // Credit-only history for the visible log.
 	std::uint64_t total_credit_events = 0;
 	std::array<std::uint64_t, 4> damage_centi = {}; // Cumulative finalized attributed credits received.
-	int winner_port = -1; // Derived only from a complete normal game-end packet.
+	bool teams = false;
+	std::array<std::uint8_t, 4> kinds = {{255, 255, 255, 255}};
+	std::array<std::uint8_t, 4> team_ids = {{255, 255, 255, 255}};
+	int winner_port = -1; // Representative of a validated winning side, including CPUs.
+	int winner_team = -1;
+	std::array<bool, 4> winners = {}; // All winning-side participants, including eliminated teammates.
 	bool game_ended = false;
 	bool credit_stream_seen = false;
 	bool credit_stream_incomplete = false;
@@ -77,6 +85,7 @@ private:
 	void CreditBatch(const std::uint8_t* data, std::size_t length);
 	void Publish(const DamageEvent& event);
 	void MarkIncomplete();
+	void ResultPacket(const std::uint8_t* data, std::size_t length);
 	struct CreditFrame
 	{
 		bool overflow = false;
@@ -90,6 +99,11 @@ private:
 	std::map<std::int32_t, CreditFrame> m_pending_credits;
 	std::int32_t m_finalized = -124;
 	std::int32_t m_latest_received = -124;
+	bool m_result_seen = false;
+	bool m_result_valid = false;
+	std::uint8_t m_result_method = 0;
+	std::uint8_t m_result_winners = 0;
+	int m_result_team = -1;
 };
 
 Tracker& GetTracker();

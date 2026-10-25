@@ -36,18 +36,24 @@ int main()
 	gate.Reset();
 	Check(!gate.Query(query.data(), query.size()), "next match requires fresh authorization");
 	query[6] = 0;
-	Check(!gate.Query(query.data(), query.size()), "third player blocked");
-	Check(!gate.Read().ready, "unsupported roster cannot request funding");
+	Check(!gate.Query(query.data(), query.size()), "third player remains gated before engine acknowledgement");
+	Check(gate.Read().ready, "three-player roster can request funding");
 	Check(!gate.Query(query.data(), 11), "truncated query fails closed");
 	query[3] = 0;
 	query[6] = query[7] = 0;
 	query[10] = 3; query[11] = 4;
 	query[12] = 1;
 	query[13] = 0; query[14] = 1; query[15] = 0; query[16] = 1;
-	Check(!gate.Query(query.data(), query.size()), "teams stay blocked pending funding integration");
+	Check(!gate.Query(query.data(), query.size()), "team roster remains gated before engine acknowledgement");
 	auto teams = gate.Read();
 	Check(teams.roster_valid && teams.teams && teams.team_ids[2] == 0 && teams.kinds[3] == 0,
 	      "four human team roster exposed to UI");
+	Check(teams.ready, "four-player team roster is funding-ready");
+	query[3] = 1;
+	gate.Query(query.data(), query.size());
+	Check(gate.Authorize(gate.Read().generation) && gate.Query(query.data(), query.size()),
+	      "fully acknowledged team roster admits Start");
+	query[3] = 0;
 	const auto old_team = teams.generation;
 	query[15] = 2;
 	gate.Query(query.data(), query.size());
@@ -73,7 +79,7 @@ int main()
 	Check(gate.Read().roster_valid && !gate.Read().teams, "four slot FFA exposed");
 	query[7] = 3;
 	gate.Query(query.data(), query.size());
-	Check(gate.Read().roster_valid, "three participant FFA supported as telemetry");
+	Check(gate.Read().roster_valid, "three participant FFA supports funding");
 	query[6] = 3;
 	query[3] = 1;
 	gate.Query(query.data(), query.size());

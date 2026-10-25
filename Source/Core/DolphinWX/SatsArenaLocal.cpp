@@ -3,6 +3,9 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cmath>
+#include <vector>
+#include <wx/panel.h>
 #include <cstring>
 #include <wx/button.h>
 #include <wx/dcmemory.h>
@@ -18,7 +21,7 @@
 #include "Core/Slippi/SatsArenaTracker.h"
 #include "DolphinWX/QR/qrcodegen.hpp"
 #include "sats_arena_local.h"
-static_assert(sizeof(ArenaLocalView) == 9392, "Arena local ABI layout mismatch");
+static_assert(sizeof(ArenaLocalView) == 14456, "Arena local ABI layout mismatch");
 
 namespace SatsArenaLocal
 {
@@ -98,16 +101,16 @@ public:
 			"Connecting wallet...");
 		m_rules->Wrap(310);
 		root->Add(m_rules, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
-		for (int i = 0; i < 2; ++i)
+		for (int i = 0; i < 4; ++i)
 		{
-			auto* row = new wxBoxSizer(wxHORIZONTAL);
-			m_qr[i] = new wxStaticBitmap(this, wxID_ANY, InvoiceQR(""));
-			m_qr[i]->SetName(wxString::Format("Player %d payment QR code", i + 1));
-			row->Add(m_qr[i], 0, wxRIGHT | wxALIGN_CENTER_VERTICAL, 12);
+			auto* card = new wxPanel(this);
+			m_rows[i] = card;
+			card->SetBackgroundColour(wxColour(16, 20, 25));
+			card->SetForegroundColour(wxColour(244, 246, 248));
 			auto* info = new wxBoxSizer(wxVERTICAL);
-			auto* player = new wxStaticText(this, wxID_ANY, wxString::Format("PLAYER %d", i + 1));
-			info->Add(player, 0, wxBOTTOM, 8);
-			m_address[i] = new wxTextCtrl(this, wxID_ANY);
+			m_player[i] = new wxStaticText(card, wxID_ANY, wxString::Format("PLAYER %d", i + 1));
+			info->Add(m_player[i], 0, wxBOTTOM, 6);
+			m_address[i] = new wxTextCtrl(card, wxID_ANY);
 			m_address[i]->SetHint("name@wallet.com");
 			m_address[i]->SetMaxLength(127);
 			m_address[i]->SetMinSize(wxSize(80, -1));
@@ -115,27 +118,33 @@ public:
 			m_address[i]->Bind(wxEVT_TEXT, [this, i](wxCommandEvent&) { m_addresses_dirty[i] = true; });
 			auto* address_row = new wxBoxSizer(wxHORIZONTAL);
 			address_row->Add(m_address[i], 1, wxRIGHT | wxALIGN_CENTER_VERTICAL, 6);
-			m_verify[i] = new wxButton(this, wxID_ANY, "Verify", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+			m_verify[i] = new wxButton(card, wxID_ANY, "Verify", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
 			m_verify[i]->SetName(wxString::Format("Verify Player %d receiving address", i + 1));
 			m_verify[i]->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent&) {
 				if (m_handle && arena_local_verify_address(m_handle, i, m_address[i]->GetValue().utf8_str().data()))
 					m_address_pending = i;
 			});
 			address_row->Add(m_verify[i], 0);
-			info->Add(address_row, 0, wxBOTTOM | wxEXPAND, 8);
-			m_verification[i] = new wxStaticText(this, wxID_ANY, "Not verified");
+			info->Add(address_row, 0, wxBOTTOM | wxEXPAND, 6);
+			m_verification[i] = new wxStaticText(card, wxID_ANY, "Not verified");
 			m_verification[i]->SetFont(wxFont(8, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 			info->Add(m_verification[i], 0, wxBOTTOM | wxEXPAND, 6);
-			m_payment[i] = new wxStaticText(this, wxID_ANY, "Waiting...");
+			auto* body = new wxBoxSizer(wxHORIZONTAL);
+			m_qr[i] = new wxStaticBitmap(card, wxID_ANY, InvoiceQR(""));
+			m_qr[i]->SetName(wxString::Format("Player %d payment QR code", i + 1));
+			body->Add(m_qr[i], 0, wxRIGHT | wxALIGN_CENTER_VERTICAL, 12);
+			auto* payment = new wxBoxSizer(wxVERTICAL);
+			m_payment[i] = new wxStaticText(card, wxID_ANY, "Waiting...");
 			m_payment[i]->SetFont(wxFont(9, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
-			info->Add(m_payment[i], 0, wxBOTTOM, 8);
-			m_pay[i] = new wxButton(this, wxID_ANY, "Simulate payment");
+			payment->Add(m_payment[i], 0, wxBOTTOM, 6);
+			m_pay[i] = new wxButton(card, wxID_ANY, "Simulate payment");
 			m_pay[i]->SetName(wxString::Format("Simulate Player %d payment", i + 1));
-			m_pay[i]->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent&) { Send(2 + i); });
-			info->Add(m_pay[i], 0);
-			row->Add(info, 1, wxEXPAND);
-			root->Add(row, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
-
+			m_pay[i]->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent&) { Send(i < 2 ? 2 + i : 7 + i); });
+			payment->Add(m_pay[i], 0);
+			body->Add(payment, 1, wxEXPAND);
+			info->Add(body, 0, wxEXPAND);
+			card->SetSizer(info);
+			root->Add(card, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		}
 		m_verification_note = new wxStaticText(this, wxID_ANY, "Checks the receiver and an unpaid invoice. No funds are sent.");
 		m_verification_note->Wrap(310);
@@ -169,25 +178,27 @@ private:
 		return true;
 	}
 
+	static const char* TeamName(unsigned team)
+	{
+		return team < 3 ? std::array<const char*, 3>{{"Red", "Blue", "Green"}}[team] : "Unknown";
+	}
+	static bool SameRoster(const ArenaLocalView& view, const SatsArena::GateView& css)
+	{
+		if (!view.roster_configured || bool(view.teams) != css.teams) return false;
+		for (int i = 0; i < 4; ++i)
+			if (view.kinds[i] != css.kinds[i] || view.team_ids[i] != css.team_ids[i] ||
+				view.characters[i] != css.characters[i]) return false;
+		return true;
+	}
 	void Poll()
 	{
-		if (!m_enabled)
-		{
-			m_phase->SetLabel("Payment gate disabled");
-			for (int i = 0; i < 2; ++i) { m_pay[i]->Disable(); m_qr[i]->Hide(); }
-			return;
-		}
+		if (!m_enabled) { m_phase->SetLabel("Payment gate disabled"); return; }
 		ArenaLocalView view = {};
-		if (!m_handle || !arena_local_snapshot(m_handle, &view))
-			return;
-		if (view.abi_version != 4)
-		{
-			m_error->SetLabel("Payment engine ABI mismatch");
-			return;
-		}
+		if (!m_handle || !arena_local_snapshot(m_handle, &view)) return;
+		if (view.abi_version != 5) { m_error->SetLabel("Payment engine ABI mismatch"); return; }
 		if (!m_addresses_loaded && view.phase != 0)
 		{
-			for (int i = 0; i < 2; ++i) m_address[i]->ChangeValue(wxString::FromUTF8(view.addresses[i]));
+			for (int i = 0; i < 4; ++i) m_address[i]->ChangeValue(wxString::FromUTF8(view.addresses[i]));
 			m_addresses_loaded = true;
 		}
 		if (m_address_pending >= 0 && !view.busy)
@@ -200,144 +211,148 @@ private:
 				m_address[i]->ChangeValue(wxString::FromUTF8(view.addresses[i]));
 			}
 		}
-		const bool addresses_saved = !m_addresses_dirty[0] && !m_addresses_dirty[1] &&
-			m_address_pending < 0 && view.verification_state[0] == 2 && view.verification_state[1] == 2;
-		const bool addresses_editable = view.phase == 1 && !view.paid_sats[0] && !view.paid_sats[1];
-		const bool can_verify = view.phase == 1 || view.phase == 2;
-		for (int i = 0; i < 2; ++i)
-		{
-			m_address[i]->Enable(addresses_editable && !view.busy);
-			m_verify[i]->Enable(can_verify && !view.busy && m_address_pending < 0);
-			m_verify[i]->Show(can_verify);
-		}
-		m_address_warning->Show(can_verify && !addresses_saved);
-		m_verification_note->Show(can_verify);
 		auto& gate = SatsArena::GetPaymentGate();
 		const auto css = gate.Read();
 		const auto match = SatsArena::GetTracker().Read();
-		wxString roster;
-		if (css.kinds[0] < 2 || css.kinds[1] < 2 || css.kinds[2] < 2 || css.kinds[3] < 2)
+		const bool roster_matches = SameRoster(view, css);
+		bool addresses_saved = m_address_pending < 0;
+		bool any_paid = false;
+		for (int i = 0; i < 4; ++i)
 		{
-			roster = css.teams ? "TEAM BATTLE" : "FREE-FOR-ALL";
-			const char* team_names[] = {"Red", "Blue", "Green"};
-			for (int i = 0; i < 4; ++i)
-			{
-				if (css.kinds[i] > 1) continue;
-				roster += wxString::Format("\nP%d • %s", i + 1, css.kinds[i] == 1 ? "CPU" : "Human");
-				if (css.teams && css.team_ids[i] < 3)
-					roster += wxString::Format(" • %s Team", team_names[css.team_ids[i]]);
-			}
+			if (view.kinds[i] == 0 && (m_addresses_dirty[i] || view.verification_state[i] != 2)) addresses_saved = false;
+			any_paid = any_paid || view.paid_sats[i] != 0;
 		}
-		else roster = "Waiting for a valid character-select roster...";
-		if (css.roster_valid && !css.ready && (view.phase == 1 || view.phase == 2))
+		if (m_credit_pending && !view.busy)
 		{
-			m_address_warning->SetLabel("Match blocked: funding is unavailable for this roster.");
-			m_address_warning->Wrap(310);
-			m_address_warning->Show();
+			m_credit_pending = false;
+			if (view.error[0]) m_capture_failed = true;
 		}
-		else m_address_warning->SetLabel("Match blocked: verify both players' receiving addresses.");
-		m_address_warning->Wrap(310);
-		m_roster->SetLabel(roster);
-		m_roster->Wrap(310);
-
-		// Match events are observed on the core thread; wallet actions stay asynchronous.
 		if (m_start_pending && !view.busy)
 		{
 			m_start_pending = false;
 			if (view.phase == 3 && !view.error[0])
 			{
-				if (gate.Authorize(m_generation))
-					m_admitted = true;
-				else
-					m_abandon = true; // Selection changed while the worker admitted.
+				if (gate.Authorize(m_generation)) m_admitted = true;
+				else m_abandon = true;
 			}
 		}
 		if (m_admitted && match.match_number != m_match_number &&
-			(match.status == SatsArena::TrackingState::LocalMatch ||
-			 match.status == SatsArena::TrackingState::Finished))
+			(match.status == SatsArena::TrackingState::LocalMatch || match.status == SatsArena::TrackingState::Finished ||
+			 match.status == SatsArena::TrackingState::Unsupported))
+		{
 			m_in_match = true;
-		if (m_credit_pending && !view.busy)
-		{
-			m_credit_pending = false;
-			if (!view.error[0]) m_last_credits = m_pending_credits;
+			if (match.status == SatsArena::TrackingState::Unsupported || bool(view.teams) != match.teams) m_capture_failed = true;
+			for (int i = 0; i < 4; ++i)
+				if (view.kinds[i] != match.kinds[i] || view.team_ids[i] != match.team_ids[i]) m_capture_failed = true;
 		}
-		if (m_in_match && view.phase == 3 && !view.busy && !match.credit_stream_incomplete)
+		if (m_in_match && view.phase == 3 && !view.busy && !m_capture_failed && !match.credit_stream_incomplete)
 		{
-			const std::array<std::uint64_t, 2> totals = {{match.damage_centi[0], match.damage_centi[1]}};
-			if (totals != m_last_credits)
+			std::vector<ArenaLocalCredit> credits;
+			for (const auto& event : match.credit_events)
+				if (event.sequence > view.last_credit_sequence)
+					credits.push_back({event.sequence, static_cast<std::uint64_t>(std::llround(event.amount * 100.0)),
+						static_cast<std::uint32_t>(event.attacker), event.victim});
+			if (match.total_credit_events > view.last_credit_sequence &&
+				(credits.empty() || credits.front().sequence != view.last_credit_sequence + 1)) m_capture_failed = true;
+			else if (!credits.empty())
 			{
-				if (arena_local_credit(m_handle, totals[0], totals[1]))
-				{
-					m_pending_credits = totals;
-					m_credit_pending = true;
-				}
-				return; // Flush the latest live payouts before submitting the game result.
+				m_credit_pending = arena_local_credits(m_handle, credits.data(), credits.size());
+				return; // Acknowledge all final credits before submitting the result.
 			}
 		}
 		if (!view.busy && view.phase == 3)
 		{
-			if (m_in_match && match.status == SatsArena::TrackingState::Finished)
+			if (m_in_match && (match.status == SatsArena::TrackingState::Finished || !Core::IsRunning()))
 			{
-				const unsigned result = match.game_ended && !match.credit_stream_incomplete && match.winner_port >= 0 &&
-					match.winner_port <= 1 ? 6 + match.winner_port : 8;
+				const int winner = match.game_ended && match.credit_stream_seen && !m_capture_failed && !match.credit_stream_incomplete ? match.winner_port : -1;
+				const unsigned result = winner >= 0 && winner < 4 ? (winner < 2 ? 6 + winner : 9 + winner) : 8;
 				if (Send(result)) { m_in_match = false; m_admitted = false; m_settling = true; }
 			}
-			else if (!m_settling && (m_abandon || (!m_admitted && !m_start_pending)))
+			else if (m_abandon || (!m_admitted && !m_start_pending) ||
+				(m_admitted && !m_in_match && (!Core::IsRunning() || css.generation != m_generation)))
 			{
-				// Recover a previous interrupted fake session without inventing a winner.
-				if (Send(8)) { m_abandon = false; m_admitted = false; }
-			}
-			else if (m_admitted && !m_in_match &&
-					 (!Core::IsRunning() || css.generation != m_generation))
-			{
-				gate.Reset();
-				if (Send(8)) m_admitted = false;
+				if (Send(8)) { m_abandon = false; m_admitted = false; m_settling = true; }
 			}
 		}
-		else if (!view.busy && view.phase == 4 && css.ready)
+		else if (!view.busy && !m_admitted && !m_start_pending)
 		{
-			m_settling = false;
-			Send(1); // Two fresh invoices at the next PRESS START prompt.
+			if (view.phase == 4 && css.roster_valid)
+			{
+				m_settling = false;
+				m_capture_failed = false;
+				Send(1);
+			}
+			else if ((view.phase == 1 || view.phase == 2) && css.roster_valid && !roster_matches)
+			{
+				std::array<std::uint32_t, 4> kinds, teams, characters;
+				for (int i = 0; i < 4; ++i) { kinds[i] = css.kinds[i]; teams[i] = css.team_ids[i]; characters[i] = css.characters[i]; }
+				arena_local_roster(m_handle, css.teams, kinds.data(), teams.data(), characters.data());
+				m_lobby_generation = css.generation;
+			}
+			else if ((view.phase == 1 || view.phase == 2) && any_paid &&
+				(!css.roster_valid || (m_lobby_generation && m_lobby_generation != css.generation)))
+			{
+				Send(8); // Return funded entries before an altered lobby can start.
+			}
+			else if (view.phase == 2 && css.ready && css.requested && roster_matches && addresses_saved && !view.error[0])
+			{
+				m_generation = css.generation;
+				m_match_number = match.match_number;
+				m_capture_failed = false;
+				m_credit_pending = false;
+				m_start_pending = Send(4);
+			}
+			else if (roster_matches) m_lobby_generation = css.generation;
 		}
-		else if (!view.busy && view.phase == 2 && css.ready && css.requested &&
-				 !m_start_pending && addresses_saved && !view.error[0])
-		{
-			m_generation = css.generation;
-			m_match_number = match.match_number;
-			m_last_credits = {};
-			m_credit_pending = false;
-			m_start_pending = Send(4); // Single-use admission must be acknowledged before grant.
-		}
-
+		const bool funding = view.phase == 1 || view.phase == 2;
+		const bool show_css = !m_admitted && !m_in_match && (css.kinds[0] < 2 || css.kinds[1] < 2 || css.kinds[2] < 2 || css.kinds[3] < 2);
+		wxString roster = (show_css ? css.teams : bool(view.teams)) ? "TEAM BATTLE" : "FREE-FOR-ALL";
+		m_roster->SetLabel(roster);
 		wxString phase;
 		if (view.phase == 0) phase = "Starting payment engine...";
 		else if (view.phase == 7 || view.error[0]) phase = "Payment needs attention";
-		else if (css.roster_valid && !css.ready && (view.phase == 1 || view.phase == 2)) phase = "Match blocked • unsupported roster";
-		else if (m_address_pending >= 0) phase = "Verifying receiving addresses...";
-		else if (!addresses_saved && (view.phase == 1 || view.phase == 2)) phase = "Verify both Lightning Addresses";
-		else if (view.phase == 6) phase = "Sending remaining match payouts...";
+		else if (view.phase == 6) phase = "Sending match payouts...";
 		else if (m_in_match) phase = "Match in progress";
-		else if (m_admitted) phase = "Both paid • choose a stage";
-		else if (!css.ready && match.game_ended)
-			phase = match.winner_port >= 0 ? wxString::Format("Player %d wins • next match", match.winner_port + 1) : wxString("No contest • next match");
-		else if (!css.ready) phase = "Choose two characters (P1 / P2)";
-		else if (view.phase == 2) phase = css.requested ? "Confirming match admission..." : "Both paid • PRESS START";
-		else if (view.phase == 3 || view.phase == 4) phase = "Settling previous match...";
-		else phase = css.requested ? "Start queued • waiting for payment" : "PRESS START • waiting for payment";
+		else if (m_admitted) phase = "Entries paid • choose a stage";
+		else if (funding && (!css.roster_valid || !roster_matches)) phase = "Choose 2–4 players and opposing sides";
+		else if (m_address_pending >= 0) phase = "Verifying receiving address...";
+		else if (funding && !addresses_saved) phase = "Verify each human's address";
+		else if (view.phase == 2) phase = css.requested ? "Confirming match admission..." : "Entries paid • PRESS START";
+		else if (view.phase == 4) phase = "Match settled • next match";
+		else phase = css.requested ? "Start queued • waiting for entries" : "PRESS START • waiting for entries";
 		m_phase->SetLabel(phase);
 		m_phase->Wrap(310);
-		m_rules->SetLabel(wxString::Format(
-			"%s\n%llu sats each match • %llu sats / 1%%\n5-second batches • winner gets the rest",
+		wxString warning;
+		if (funding && (!css.roster_valid || !roster_matches)) warning = "Match blocked: finish selecting opposing players.";
+		else if (funding && !addresses_saved) warning = "Match blocked: verify every human's receiving address.";
+		else if (view.phase == 1) warning = "Match blocked: every human must pay their entry.";
+		m_address_warning->SetLabel(warning);
+		m_address_warning->Wrap(310);
+		m_address_warning->Show(!warning.empty());
+		m_rules->SetLabel(wxString::Format("%s\n%llu sats per human • %llu sats / 1%%\n5-second batches • winners split opponents' pots",
 			view.simulated ? "FAKE WALLET • simulated payments" : "LIGHTNING WALLET • live payments",
-			static_cast<unsigned long long>(view.entry_sats),
-			static_cast<unsigned long long>(view.sats_per_percent)));
+			static_cast<unsigned long long>(view.entry_sats), static_cast<unsigned long long>(view.sats_per_percent)));
 		m_rules->Wrap(310);
-		for (int i = 0; i < 2; ++i)
+		m_verification_note->Show(funding);
+		for (int i = 0; i < 4; ++i)
 		{
+			const unsigned kind = show_css ? css.kinds[i] : view.kinds[i];
+			const unsigned team = show_css ? css.team_ids[i] : view.team_ids[i];
+			const bool teams = show_css ? css.teams : bool(view.teams);
+			const bool human = kind == 0;
+			m_rows[i]->Show(kind < 2);
+			wxString label = wxString::Format("PLAYER %d • %s", i + 1, human ? "Human" : "CPU");
+			if (teams && team < 3) label += wxString::Format(" • %s Team", TeamName(team));
+			m_player[i]->SetLabel(label);
+			m_address[i]->Show(human);
+			m_verify[i]->Show(human && funding);
+			m_address[i]->Enable(human && funding && !any_paid && !view.busy);
+			m_verify[i]->Enable(funding && roster_matches && !view.busy && m_address_pending < 0);
 			const unsigned status = m_addresses_dirty[i] ? 0 : view.verification_state[i];
 			wxString verification;
 			wxColour colour(150, 160, 172);
-			if (m_address_pending == i) verification = "Checking receiver...";
+			if (!human) verification = "No address or entry required";
+			else if (m_address_pending == i) verification = "Checking receiver...";
 			else if (status == 2)
 			{
 				verification = wxString::Format("Verified • %llu–%llu sats",
@@ -345,57 +360,32 @@ private:
 					static_cast<unsigned long long>(view.max_sendable_msat[i] / 1000));
 				colour = wxColour(160, 230, 150);
 			}
-			else if (status == 3 || status == 5)
-			{
-				verification = wxString::FromUTF8(view.verification_message[i]);
-				colour = wxColour(255, 160, 135);
-			}
+			else if (status == 3 || status == 5) { verification = wxString::FromUTF8(view.verification_message[i]); colour = wxColour(255, 160, 135); }
 			else if (status == 4) verification = "Verification expired • verify again";
 			else verification = "Not verified";
 			m_verification[i]->SetLabel(verification);
-			m_verification[i]->Wrap(165);
+			m_verification[i]->Wrap(290);
 			m_verification[i]->SetForegroundColour(colour);
 			m_verification[i]->SetToolTip(wxString::FromUTF8(view.verification_message[i]));
-			m_payment[i]->SetLabel(wxString::Format(
-				"Entry: %s\nFunds left: %llu sats\nPaid out: %llu sats\nPending: %llu sats (%llus)",
-				view.paid_sats[i] ? "PAID" : "Awaiting payment",
-				static_cast<unsigned long long>(view.remaining_sats[i]),
-				static_cast<unsigned long long>(view.earned_sats[i]),
-				static_cast<unsigned long long>(view.pending_sats[i]),
-				static_cast<unsigned long long>((view.batch_remaining_ms[i] + 999) / 1000)));
-			const bool show = css.ready && addresses_saved && !m_admitted && (view.phase == 1 || view.phase == 2);
+			m_payment[i]->SetLabel(human ? wxString::Format("Entry: %s\nPot: %llu sats\nPaid out: %llu sats\nPending: %llu sats (%llus)",
+				view.paid_sats[i] ? "PAID" : "Awaiting payment", static_cast<unsigned long long>(view.remaining_sats[i]),
+				static_cast<unsigned long long>(view.earned_sats[i]), static_cast<unsigned long long>(view.pending_sats[i]),
+				static_cast<unsigned long long>((view.batch_remaining_ms[i] + 999) / 1000)) : wxString("CPU • no payments"));
+			const bool show = human && css.ready && roster_matches && addresses_saved && !m_admitted && funding;
 			const wxString invoice = show && view.invoices[i][0] ? wxString::FromUTF8(view.invoices[i]) : "";
-			if (invoice != m_last_invoice[i])
-			{
-				m_qr[i]->SetBitmap(InvoiceQR(invoice.utf8_str().data()));
-				m_last_invoice[i] = invoice;
-			}
-			m_qr[i]->Show(!invoice.empty()); // Keep both current-match QR codes after payment.
-
+			if (invoice != m_last_invoice[i]) { m_qr[i]->SetBitmap(InvoiceQR(invoice.utf8_str().data())); m_last_invoice[i] = invoice; }
+			m_qr[i]->Show(!invoice.empty());
 			m_pay[i]->SetLabel(view.paid_sats[i] ? "Paid" : "Simulate payment");
-			m_pay[i]->Show(view.simulated && (view.phase == 1 || view.phase == 2));
+			m_pay[i]->Show(human && view.simulated && funding);
 			m_pay[i]->Enable(show && view.phase == 1 && !view.busy && view.paid_sats[i] == 0);
+			m_rows[i]->Layout();
 		}
 		m_error->SetLabel(wxString::FromUTF8(view.error));
 		m_error->Wrap(310);
 		wxString activity;
-		if (match.credit_stream_incomplete) activity += "Credit capture incomplete • remaining funds will be returned\n";
-		// Keep damage context compact; payment receipts are the primary log.
-		const auto first = match.credit_events.size() > 5 ? match.credit_events.size() - 5 : 0;
-		for (std::size_t i = first; i < match.credit_events.size(); ++i)
-		{
-			const auto& event = match.credit_events[i];
-			activity += wxString::Format("f%d P%d -> P%d +%.1f damage\n", event.frame, event.attacker + 1, event.victim + 1, event.amount);
-		}
-		if (match.game_ended)
-			activity += match.winner_port >= 0 ? wxString::Format("Player %d wins\n", match.winner_port + 1) : wxString("No contest\n");
-		activity += "\n";
+		if ((m_admitted || m_in_match) && (m_capture_failed || match.credit_stream_incomplete)) activity = "Incomplete match data • unspent funds will be returned\n";
 		activity += wxString::FromUTF8(view.payment_log);
-		if (m_log->GetValue() != activity)
-		{
-			m_log->ChangeValue(activity);
-			m_log->ShowPosition(m_log->GetLastPosition());
-		}
+		if (m_log->GetValue() != activity) { m_log->ChangeValue(activity); m_log->ShowPosition(m_log->GetLastPosition()); }
 		Layout();
 		FitInside();
 	}
@@ -405,24 +395,27 @@ private:
 	bool m_enabled = true, m_start_pending = false, m_admitted = false;
 	bool m_in_match = false, m_abandon = false, m_settling = false;
 	std::uint64_t m_generation = 0, m_match_number = 0, m_log_revision = ~std::uint64_t(0);
-	std::array<std::uint64_t, 2> m_last_credits = {}, m_pending_credits = {};
+	std::uint64_t m_lobby_generation = 0;
+	bool m_capture_failed = false;
 	bool m_credit_pending = false;
 	wxStaticText* m_rules = nullptr;
 	wxStaticText* m_roster = nullptr;
 	wxStaticText* m_phase = nullptr;
 	wxStaticText* m_error = nullptr;
-	wxStaticText* m_payment[2] = {};
-	wxStaticText* m_verification[2] = {};
+	wxPanel* m_rows[4] = {};
+	wxStaticText* m_player[4] = {};
+	wxStaticText* m_payment[4] = {};
+	wxStaticText* m_verification[4] = {};
 	wxStaticText* m_verification_note = nullptr;
-	wxStaticBitmap* m_qr[2] = {};
-	wxTextCtrl* m_address[2] = {};
-	wxButton* m_verify[2] = {};
+	wxStaticBitmap* m_qr[4] = {};
+	wxTextCtrl* m_address[4] = {};
+	wxButton* m_verify[4] = {};
 	wxStaticText* m_address_warning = nullptr;
-	bool m_addresses_loaded = false, m_addresses_dirty[2] = {};
+	bool m_addresses_loaded = false, m_addresses_dirty[4] = {};
 	int m_address_pending = -1;
 	wxTextCtrl* m_log = nullptr;
-	wxButton* m_pay[2] = {};
-	wxString m_last_invoice[2];
+	wxButton* m_pay[4] = {};
+	wxString m_last_invoice[4];
 };
 }
 wxWindow* CreateSidebar(wxWindow* parent) { return new FundingPanel(parent); }

@@ -109,6 +109,7 @@ class CEXISlippi : public IEXIDevice
 		CMD_FETCH_RANK = 0xE4,
 		CMD_GET_RANK_VISIBILITY = 0xE5,
 		CMD_ARENA_PAYMENT_GATE = 0xE7, // Private CSS request/reply, never forwarded.
+		CMD_ARENA_RESULT = 0xE8, // Private authoritative local result; never forwarded.
 		CMD_ARENA_CREDIT_BATCH = 0xE6 // Private local diagnostics; never recorded or forwarded.
 	};
 
@@ -198,6 +199,7 @@ class CEXISlippi : public IEXIDevice
 	    {CMD_GET_RANK, 0x0},
 	    {CMD_FETCH_RANK, 0x0},
 	    {CMD_GET_RANK_VISIBILITY, 0x0},
+	    {CMD_ARENA_RESULT, 15},
 	    {CMD_ARENA_CREDIT_BATCH, 391}, // 392-byte fixed packet, including command.
 	};
 

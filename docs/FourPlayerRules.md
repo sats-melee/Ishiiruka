@@ -24,12 +24,12 @@ Agreed behavior for local Melee, up to four participants:
 
 ## Integration status
 
-The v2 CSS hook and host parser provide the live four-slot roster and team IDs.
-The panel shows that roster. Expanded admission remains blocked deliberately:
-the payment engine, four-player controls, attacker/victim accounting and team
-results still need their corresponding integration and end-to-end tests.
+The CSS v2 roster bridge, four-slot payment host, scrollable cards, ordered
+attacker/victim accounting and team settlement are connected. The match-end
+hook reports actual team standings through private E8; standard individual
+placements alone cannot establish a team winner.
 
-The current in-game recording sends the match setup block and all four result
-placements. Its tracker must be expanded to read teams and agree with the paid
-CSS roster before any damage payout or result is accepted. An ambiguous or
-incomplete result must use the return path.
+The match-start roster must agree with the funded CSS roster. Missing/incomplete
+credits or an ambiguous result take the return path. Live launcher checks and
+accounting assertions are in [the evidence](evidence/four-player-payments/README.md).
+Gameplay payments remain simulated; receiving-address verification is live.

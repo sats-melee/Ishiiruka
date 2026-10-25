@@ -1,0 +1,268 @@
+{
+  "verified_on": "2026-10-25",
+  "payment_mode": "simulated",
+  "cases": [
+    {
+      "match_id": "match-70d85a194eef22e1371356069c7e4dd8",
+      "phase": "Settled",
+      "teams": false,
+      "kinds": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "team_ids": [
+        255,
+        255,
+        255,
+        255
+      ],
+      "outcome": {
+        "Winner": 3
+      },
+      "contributed_sats": 2000,
+      "remaining_sats": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "paid_sats_by_player": [
+        232,
+        0,
+        0,
+        1768
+      ],
+      "pending_sats": 0,
+      "last_credit_sequence": 3,
+      "confirmed_payouts": [
+        {
+          "player_port": 1,
+          "sats": 232,
+          "reason": "Damage",
+          "address": "nic@landaverde.io"
+        },
+        {
+          "player_port": 4,
+          "sats": 1768,
+          "reason": "Settlement",
+          "address": "moldyshelf891@walletofsatoshi.com"
+        }
+      ],
+      "simulated": true,
+      "conserved": true,
+      "scenario": "four-human-ffa"
+    },
+    {
+      "match_id": "match-16ddcd6de2fe2814242af13a035db4e9",
+      "phase": "Settled",
+      "teams": true,
+      "kinds": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "team_ids": [
+        0,
+        1,
+        0,
+        1
+      ],
+      "outcome": "NoContest",
+      "contributed_sats": 500,
+      "remaining_sats": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "paid_sats_by_player": [
+        500,
+        0,
+        0,
+        0
+      ],
+      "pending_sats": 0,
+      "last_credit_sequence": 0,
+      "confirmed_payouts": [
+        {
+          "player_port": 1,
+          "sats": 500,
+          "reason": "Settlement",
+          "address": "nic@landaverde.io"
+        }
+      ],
+      "simulated": true,
+      "conserved": true,
+      "scenario": "funded-team-change-refund"
+    },
+    {
+      "match_id": "match-286d881e43a9f0c06f3c07efe38ea4ce",
+      "phase": "Settled",
+      "teams": true,
+      "kinds": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "team_ids": [
+        0,
+        1,
+        0,
+        1
+      ],
+      "outcome": {
+        "Winner": 1
+      },
+      "contributed_sats": 2000,
+      "remaining_sats": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "paid_sats_by_player": [
+        232,
+        768,
+        0,
+        1000
+      ],
+      "pending_sats": 0,
+      "last_credit_sequence": 3,
+      "confirmed_payouts": [
+        {
+          "player_port": 1,
+          "sats": 232,
+          "reason": "Damage",
+          "address": "nic@landaverde.io"
+        },
+        {
+          "player_port": 2,
+          "sats": 768,
+          "reason": "Settlement",
+          "address": "moldyshelf891@walletofsatoshi.com"
+        },
+        {
+          "player_port": 4,
+          "sats": 1000,
+          "reason": "Settlement",
+          "address": "moldyshelf891@walletofsatoshi.com"
+        }
+      ],
+      "simulated": true,
+      "conserved": true,
+      "scenario": "two-versus-two-eliminated-winner"
+    },
+    {
+      "match_id": "match-b7e73466f983c6199a322cd31634ff36",
+      "phase": "Settled",
+      "teams": true,
+      "kinds": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "team_ids": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "outcome": {
+        "Winner": 3
+      },
+      "contributed_sats": 1500,
+      "remaining_sats": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "paid_sats_by_player": [
+        500,
+        500,
+        500,
+        0
+      ],
+      "pending_sats": 0,
+      "last_credit_sequence": 57,
+      "confirmed_payouts": [
+        {
+          "player_port": 1,
+          "sats": 500,
+          "reason": "Settlement",
+          "address": "nic@landaverde.io"
+        },
+        {
+          "player_port": 2,
+          "sats": 500,
+          "reason": "Settlement",
+          "address": "moldyshelf891@walletofsatoshi.com"
+        },
+        {
+          "player_port": 3,
+          "sats": 500,
+          "reason": "Settlement",
+          "address": "nic@landaverde.io"
+        }
+      ],
+      "simulated": true,
+      "conserved": true,
+      "scenario": "three-humans-versus-cpu"
+    },
+    {
+      "match_id": "match-784d2b04b069e9351257e6b1cd30c803",
+      "phase": "Settled",
+      "teams": false,
+      "kinds": [
+        0,
+        0,
+        3,
+        3
+      ],
+      "team_ids": [
+        255,
+        255,
+        255,
+        255
+      ],
+      "outcome": "NoContest",
+      "contributed_sats": 1000,
+      "remaining_sats": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "paid_sats_by_player": [
+        660,
+        340,
+        0,
+        0
+      ],
+      "pending_sats": 0,
+      "last_credit_sequence": 2,
+      "confirmed_payouts": [
+        {
+          "player_port": 1,
+          "sats": 660,
+          "reason": "Settlement",
+          "address": "nic@landaverde.io"
+        },
+        {
+          "player_port": 2,
+          "sats": 340,
+          "reason": "Settlement",
+          "address": "moldyshelf891@walletofsatoshi.com"
+        }
+      ],
+      "simulated": true,
+      "conserved": true,
+      "scenario": "two-human-no-contest"
+    }
+  ]
+}

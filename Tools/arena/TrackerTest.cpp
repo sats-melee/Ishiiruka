@@ -154,10 +154,10 @@ void UnsupportedAndTruncated()
 	Check(tracker.Read().status == SatsArena::TrackingState::Unsupported, "online accepted");
 	start = Start(); start[0x0d] = 1;
 	Feed(tracker, start);
-	Check(tracker.Read().status == SatsArena::TrackingState::Unsupported, "teams accepted");
+	Check(tracker.Read().status == SatsArena::TrackingState::Unsupported, "single-side teams accepted");
 	start = Start(); start[0x66 + 0x48] = 0;
 	Feed(tracker, start);
-	Check(tracker.Read().status == SatsArena::TrackingState::Unsupported, "three players accepted");
+	Check(tracker.Read().status == SatsArena::TrackingState::LocalMatch, "three-player FFA rejected");
 	Feed(tracker, Start());
 	Sample(tracker, 0, 0, 0);
 	Book(tracker, 0, 0);
@@ -286,21 +286,24 @@ void RecentCreditHistory()
 	Feed(tracker, Start());
 	Sample(tracker, 0, 0, 0);
 	Book(tracker, 0, 0);
-	for (int frame = 1; frame <= 450; ++frame)
+	const int credits = static_cast<int>(SatsArena::MAX_CREDIT_MESSAGES) + 100;
+	for (int frame = 1; frame <= credits; ++frame)
 	{
 		Sample(tracker, frame, 0, static_cast<float>(frame));
 		Feed(tracker, Credits(frame, 1));
 		Book(tracker, frame, frame);
 	}
 	const auto state = tracker.Read();
-	Check(state.total_credit_events == 450 && state.total_events == 450,
+	Check(state.total_credit_events == static_cast<unsigned>(credits) && state.total_events == static_cast<unsigned>(credits),
 	      "history eviction changed match totals");
-	Check(state.damage_centi[0] == 0 && state.damage_centi[1] == 45000,
+	Check(state.damage_centi[0] == 0 && state.damage_centi[1] == static_cast<unsigned>(credits) * 100,
           "history eviction lost cumulative payment counters");
 	Check(state.credit_events.size() == SatsArena::MAX_CREDIT_MESSAGES,
 	      "visible credit history is not bounded to its message limit");
-	Check(state.credit_events.front().frame == 351 && state.credit_events.back().frame == 450,
-	      "visible history did not retain the latest credits in chronological order");
+	Check(state.credit_events.front().frame == 101 && state.credit_events.back().frame == credits,
+	      "ordered handoff did not retain the latest credits in chronological order");
+	Check(state.credit_events.front().sequence == 101 && state.credit_events.back().sequence == static_cast<unsigned>(credits),
+	      "ring eviction lost sequence continuity/gap detection");
 	for (const auto& event : state.credit_events)
 		Check(event.kind == SatsArena::EventKind::GameCredit,
 		      "unverified percent observation entered the visible log");
@@ -312,6 +315,155 @@ void RecentCreditHistory()
 	Sample(tracker, 1, 0, 8);
 	Book(tracker, 1, 1);
 	Check(tracker.Read().credit_events.empty(), "percent-only damage entered the visible log");
+}
+
+Bytes RosterStart(const std::array<std::uint8_t, 4>& kinds, bool teams,
+                  const std::array<std::uint8_t, 4>& team_ids)
+{
+	auto start = Start();
+	start[0x0d] = teams;
+	for (int i = 0; i < 4; ++i)
+	{
+		start[0x66 + i * 0x24] = kinds[i];
+		start[0x6e + i * 0x24] = team_ids[i];
+	}
+	return start;
+}
+
+Bytes Result(const Bytes& start, int mask, int team = 255, int method = 2)
+{
+	Bytes result(SatsArena::RESULT_PACKET_SIZE);
+	result[0] = SatsArena::RESULT_COMMAND;
+	result[1] = 1;
+	result[2] = method;
+	result[3] = start[0x0d];
+	result[5] = mask;
+	result[6] = team;
+	for (int i = 0; i < 4; ++i)
+	{
+		result[8 + i] = start[0x66 + i * 0x24];
+		const bool active = result[8 + i] < 2;
+		if (active) result[4] |= 1u << i;
+		result[12 + i] = active && result[3] ? start[0x6e + i * 0x24] : 255;
+	}
+	return result;
+}
+
+void ExpandedRosterAndResults()
+{
+	Tracker tracker;
+	const auto ffa = RosterStart({{0, 0, 0, 0}}, false, {{0, 0, 0, 0}});
+	Feed(tracker, ffa);
+	Check(tracker.Read().status == SatsArena::TrackingState::LocalMatch &&
+	      !tracker.Read().teams && tracker.Read().kinds[3] == 0 && tracker.Read().team_ids[3] == 255,
+	      "four-player FFA roster was not captured");
+	Feed(tracker, {0x39, 2, 255, 1, 3, 2, 0});
+	Check(tracker.Read().winner_port == 3 && tracker.Read().winners[3], "P4 FFA winner lost");
+	Feed(tracker, ffa);
+	Feed(tracker, {0x39, 1, 255, 1, 3, 0, 2});
+	Check(tracker.Read().winner_port == 2, "unambiguous FFA timeout winner lost");
+	Feed(tracker, ffa);
+	Feed(tracker, {0x39, 2, 255, 0, 1, 255, 2});
+	Check(tracker.Read().winner_port < 0, "missing third-player placement invented winner");
+
+	const auto teams = RosterStart({{0, 0, 0, 0}}, true, {{0, 1, 0, 1}});
+	Feed(tracker, teams);
+	Check(tracker.Read().teams && tracker.Read().team_ids[2] == 0 && tracker.Read().team_ids[3] == 1,
+	      "match-start team assignment missing");
+	Feed(tracker, Result(teams, 5, 0));
+	Check(!tracker.Read().game_ended && tracker.Read().winner_port < 0,
+	      "private result was published before standard game end");
+	Feed(tracker, {0x39, 2, 255, 0, 2, 3, 1});
+	auto state = tracker.Read();
+	Check(state.winner_port == 0 && state.winner_team == 0 &&
+	      state.winners == std::array<bool, 4>{{true, false, true, false}},
+	      "winning team did not include eliminated teammate");
+
+	Feed(tracker, teams);
+	Feed(tracker, Result(teams, 5, 0, 1));
+	// Individual standings can favor a losing-team player on a timeout; only
+	// the private team standings authorize the winning side.
+	Feed(tracker, {0x39, 1, 255, 2, 0, 3, 1});
+	Check(tracker.Read().winner_team == 0 && tracker.Read().winners[2],
+	      "team timeout inferred from individual standings");
+	Feed(tracker, teams);
+	Feed(tracker, {0x39, 2, 255, 0, 2, 1, 3});
+	Check(tracker.Read().winner_port < 0, "team result without team standings invented winner");
+	Feed(tracker, teams);
+	Feed(tracker, Result(teams, 1, 0));
+	Feed(tracker, {0x39, 2, 255, 0, 2, 1, 3});
+	Check(tracker.Read().winner_port < 0, "partial winning-team mask accepted");
+	Feed(tracker, teams);
+	auto wrong_roster = Result(teams, 5, 0); wrong_roster[14] = 1;
+	Feed(tracker, wrong_roster);
+	Feed(tracker, {0x39, 2, 255, 0, 2, 1, 3});
+	Check(tracker.Read().winner_port < 0, "result for different roster accepted");
+	Feed(tracker, teams);
+	Feed(tracker, Result(teams, 5, 0));
+	Feed(tracker, {0x39, 7, 255, 0, 2, 1, 3});
+	Check(tracker.Read().winner_port < 0, "no contest accepted earlier winner declaration");
+	Feed(tracker, teams);
+	Feed(tracker, {SatsArena::RESULT_COMMAND, 1});
+	Feed(tracker, {0x39, 2, 255, 0, 2, 1, 3});
+	Check(tracker.Read().winner_port < 0, "truncated private result accepted");
+
+	const auto uneven = RosterStart({{0, 0, 0, 1}}, true, {{0, 0, 0, 2}});
+	Feed(tracker, uneven);
+	Feed(tracker, Result(uneven, 8, 2));
+	Feed(tracker, {0x39, 2, 255, 1, 2, 3, 0});
+	Check(tracker.Read().winner_team == 2 && tracker.Read().winner_port == 3 &&
+	      tracker.Read().kinds[3] == 1 && tracker.Read().winners[3],
+	      "CPU-only side victory lost");
+	const auto three_teams = RosterStart({{0, 0, 1, 0}}, true, {{0, 1, 2, 0}});
+	Feed(tracker, three_teams);
+	Feed(tracker, Result(three_teams, 2, 1));
+	Feed(tracker, {0x39, 2, 255, 1, 0, 2, 3});
+	Check(tracker.Read().winner_team == 1 && tracker.Read().winner_port == 1,
+	      "three-team result lost");
+	Feed(tracker, RosterStart({{0, 0, 0, 3}}, true, {{0, 0, 0, 255}}));
+	Check(tracker.Read().status == SatsArena::TrackingState::Unsupported, "single-side team match accepted");
+	Feed(tracker, RosterStart({{0, 0, 0, 3}}, true, {{0, 1, 3, 255}}));
+	Check(tracker.Read().status == SatsArena::TrackingState::Unsupported, "invalid in-game team accepted");
+}
+
+void OrderedFinancialHandoff()
+{
+	Tracker tracker;
+	const auto roster = RosterStart({{0, 0, 0, 1}}, true, {{0, 1, 0, 1}});
+	Feed(tracker, roster);
+	for (int player = 0; player < 4; ++player) Feed(tracker, Post(0, player, 0));
+	Book(tracker, 0, 0);
+	for (int player = 0; player < 4; ++player) Feed(tracker, Post(1, player, 1));
+	auto packet = Credits(1, 8);
+	packet[2] = 4;
+	const std::array<int, 4> attackers = {{0, 1, 3, 1}};
+	const std::array<int, 4> victims = {{2, 1, 0, 0}};
+	for (int i = 0; i < 4; ++i)
+	{
+		const auto record = 8 + i * 12;
+		packet[record] = attackers[i]; packet[record + 2] = victims[i];
+		packet[record + 1] = i == 3; packet[record + 3] = i == 3;
+		Word(packet, record + 4, i + 10);
+		float amount = 8; std::uint32_t bits;
+		std::memcpy(&bits, &amount, 4); Word(packet, record + 8, bits);
+	}
+	Feed(tracker, packet);
+	Book(tracker, 1, 1);
+	const auto state = tracker.Read();
+	Check(!state.credit_stream_incomplete && state.credit_events.size() == 4,
+	      "CPU/self/friendly raw credits were dropped before financial filtering");
+	for (int i = 0; i < 4; ++i)
+	{
+		const auto& event = state.credit_events[i];
+		Check(event.sequence == static_cast<unsigned>(i + 1) && event.ordinal == i &&
+		      event.attacker == attackers[i] && event.victim == victims[i] && event.attack_id == static_cast<unsigned>(i + 10),
+		      "ordered financial handoff lost attribution or sequence");
+	}
+	Check(state.credit_events.back().attacker_follower && state.credit_events.back().victim_follower,
+	      "follower credit ownership was not preserved");
+	Feed(tracker, roster);
+	Check(tracker.Read().total_credit_events == 0 && tracker.Read().credit_events.empty(),
+	      "new match did not reset credit sequence");
 }
 
 void InspectReplay(const char* path)
@@ -359,7 +511,9 @@ int main(int argc, char** argv)
 	BoundedAndConcurrent();
 	CreditDiagnostics();
 	RecentCreditHistory();
-	std::cout << "PASS: finalization, rollback, duplicates, resets, invalid data, credits, last-100 history, bounds, concurrency\n";
+	ExpandedRosterAndResults();
+	OrderedFinancialHandoff();
+	std::cout << "PASS: finalization, rollback, duplicates, resets, invalid data, credits, ordered credit history, bounds, concurrency\n";
 	if (argc == 2)
 		InspectReplay(argv[1]);
 }

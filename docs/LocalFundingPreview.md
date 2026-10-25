@@ -1,112 +1,95 @@
-# Prepaid match payments in the sidebar (fake wallet)
+# Match funding and payouts in the sidebar
 
-Melee boots immediately with `make app`. At character select **PRESS START**,
-the sidebar shows **two new entry invoices and QR codes**, one per player.
-There is no launch-time funding dialog, reusable balance or Reserved label.
+Melee boots immediately. The sidebar follows the 2–4 active character-select
+slots, in FFA or teams, and scrolls to show every player's card. Team labels use
+Melee's actual Red, Blue and Green assignments. Closed slots are hidden. CPUs
+show **No address or entry required** and never fund or receive payments.
 
-Enter each player’s Lightning Address and click its adjacent **Verify** button
-before funding. The panel checks the live receiver and a signed unpaid test
-invoice, shows its limits, and requires rechecking after ten minutes. This
-sends no payment and does not prove address ownership or successful routing. These addresses
-are locked when the first entry payment is confirmed and retained for the next
-match. Both players pay the full entry amount every match. A paid QR stays visible
-with **PAID** beside it. Start is blocked until both current-match entries are
-confirmed; a queued Start proceeds automatically after the second payment.
+Each human enters a Lightning Address and uses its adjacent **Verify** button.
+The background worker checks the live receiving endpoint and a signed unpaid
+invoice, shows receiving limits, and requires refreshing after ten minutes.
+This sends no payment and does not prove ownership or routing. Once every human
+is verified, each has a fresh entry invoice/QR. A paid QR remains visible with
+**PAID** beside it. Start stays blocked with red text until every human is
+verified and funded; a queued Start proceeds after the last entry is confirmed.
+Addresses lock after the first entry. Changing a funded roster or team returns
+entries before issuing fresh invoices, and revokes earlier Start authorization.
 
-## Where the sats go
+## Payments
 
-Defaults are **500 sats per entry** and **10 sats per 1% credited damage**.
-They can be configured with `SATS_ARENA_ENTRY_SATS` and
-`SATS_ARENA_SATS_PER_PERCENT`.
+Defaults: **500 sats per human entry**, **10 sats per 1% credited damage**.
+Configure with `SATS_ARENA_ENTRY_SATS` and `SATS_ARENA_SATS_PER_PERCENT`.
 
-- During play, finalized attributed hits accrue earnings from the victim's
-  remaining match funds. The first whole sat starts a five-second batch window;
-  subsequent hits join without extending it. Each due batch is submitted once. A victim cannot spend more than their entry amount.
-- **Paid out** shows confirmed outgoing simulated payments. **Pending** shows
-  earnings still in the batch or owed/in flight; the countdown shows time to
-  batch close. The payment log records amount, receiving address and UTC time. Earnings do not refill either match contribution.
-- A normal winner receives **all remaining funds from both players**. There is
-  no fixed win bonus.
-- On no contest, cancellation, interrupted play or incomplete credit capture,
-  already-earned payouts stay paid and each unspent contribution is returned.
-- Returning to the next PRESS START creates two new full-price invoices.
-  Winnings from the previous game never substitute for either entry payment.
+Opponent damage steals from that victim's remaining contribution. Whole sats
+collect into five-second recipient batches; later hits do not extend the timer.
+Friendly fire, self/environmental damage, CPU attacks and hits against CPUs
+move no sats. Each victim can lose only their contributed entry.
 
-Example: both players pay 500. P1 deals 8%, receiving 80 during play.
-The remaining pot is 920. If P2 wins, P2 receives 920; total payouts are
-P1=80 and P2=920. The next game still requires 500 from each player.
+At match end, settle unbatched earnings, return each winning human's own
+unspent contribution, and split losing sides' remaining funds evenly among all
+winning humans, including eliminated teammates. CPUs never take a share. In
+FFA the sole winner receives all losing players' remaining funds. Leftover
+whole sats go in player-port order.
 
-The source of truth for these rules is
-[`sats-arena/docs/match-payments.md`](../../sats-arena/docs/match-payments.md).
+On no contest, interruption, incomplete match data, or a CPU-only winning side,
+keep accrued damage earnings and return unspent contributions to their owners.
+The log names the winning team and shows confirmed amount, player, destination
+and UTC time. Simulated receipts explicitly say **SIMULATED**. Winnings never
+replace the next match's entry.
 
-## Implementation
+The full rules are in [FourPlayerRules.md](FourPlayerRules.md) and the shared
+[payment rules](../../sats-arena/docs/match-payments.md).
 
-The existing NTSC-U 1.02 CSS hook at `0x80263250` remains the payment gate.
-Changing selections or returning from stage select revokes stale admission.
+## Game integration
+
+The CSS hook at `0x80263250` sends v2 roster queries with all four slot kinds,
+characters, team mode and team IDs. Selection changes, a new CSS visit, malformed
+packets and expired queries revoke admission. The actual match-start roster must
+agree with the funded lobby before any damage or result can pay out.
+
+Finalized credits carry attacker/victim and an ordered sequence. The worker
+consumes them in game order; duplicate retries are harmless, and a sequence gap
+forces the return path. The bounded 4,096-record history allows delayed UI polls
+without guessing attribution. Credits are acknowledged before submitting the
+final result. Missing/overflowed capture cannot authorize a winner payout.
+
+The existing match-end hook sends a private **E8** result with Melee's actual
+team standings and full winning-side mask, including eliminated teammates.
+Individual replay placements alone cannot establish the team winner. Both E6
+credits and E8 results are excluded from replay files, spectators and reporting.
+These hooks support local **NTSC-U Melee 1.02**; they do not enable online payouts.
 No wallet work runs on the emulation thread.
 
-The tracker publishes cumulative finalized credited-damage counters independent
-of its bounded visible history. The GUI sends those counters to the Rust worker.
-Cumulative processing prevents duplicate or missed UI polls from paying twice.
-Latest credits are acknowledged before a game-end payout is requested.
+The Rust `arena_pot::MatchPot` state machine owns funding, batching and settlement.
+The worker persists entries and payout intent before issuing wallet operations.
+Recovered ambiguous outgoing payments are looked up, never blindly resent.
+Pending or failed returns block funding a replacement roster. Local state schema
+2 migrates to four slots, preserving old funds, IDs and fractional damage carry.
 
-The shared `sats-arena-core::pot::MatchPot` state machine owns the contribution,
-payout and winner-pot rules. The local worker persists outgoing intent before
-calling its wallet; recovered ambiguous payments are looked up rather than
-blindly resent. Completed games are archived before creating the next game.
-A pending/failed payout prevents silently starting a new pot.
+The GUI wallet remains **simulated**; its QR invoices are not payable Lightning
+invoices. Address verification is live, and the receiving invoice resolver and
+wallet boundary remain independent of NWC. A real funding/payout wallet adapter
+still needs connecting. Fees are outside the match pots.
 
-The host is **fake only**: QR invoices are not payable Lightning invoices,
-and outgoing payments go to explicitly simulated player destinations. Real micropayments still require a real wallet adapter. Receiving destinations
-now receive live network verification even while gameplay uses the fake wallet. Routing-fee handling is not part of the simulated pot.
+State: `<Dolphin user>/SatsArenaFake/prepaid-match.json`; completed/changed games
+archive under `SatsArenaFake/matches/`. `SATS_ARENA_FAKE_DATA_DIR` selects a test
+folder. `SATS_ARENA_FAKE_LOCAL=0` disables funding for diagnostic play.
 
-State is separate from the obsolete balance preview, at
-`<Dolphin user>/SatsArenaFake/prepaid-match.json`; settled games are in
-`SatsArenaFake/matches/`. Old balances are not imported or reused.
-`SATS_ARENA_FAKE_DATA_DIR` selects a test directory.
-`SATS_ARENA_FAKE_LOCAL=0 make app` disables funding for diagnostic play.
-
-Build and checks:
+## Build and validation
 
 ```sh
+bash Tools/arena/build-codeset.sh /path/to/NTSC-U-1.02.iso
 bash Tools/arena/build.sh
 bash Tools/arena/test.sh
-# In the sibling Rust workspace:
+# Sibling Rust workspace:
 cargo test --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-The roster bridge now requires the v2 assembly codeset and matching host. A fresh install
-needs `Tools/arena/build-codeset.sh /path/to/NTSC-U-1.02.iso`.
-
-Live verification is recorded under `docs/evidence/prepaid-match/`.
-Older `css-payment-gate/` evidence documents the superseded reservation preview.
-
-The shared scheduler and wallet/provider contracts are documented in
-[`batched-payouts.md`](../../sats-arena/docs/batched-payouts.md).
-Live batching evidence is in `docs/evidence/batching/`; earlier
-`prepaid-match/` evidence predates the five-second timer.
-
-Live receiver checks and GUI evidence for the two user-provided addresses are in
-`docs/evidence/address-verification/`. The protocol details are in
-[`address-verification.md`](../../sats-arena/docs/address-verification.md).
-
-
-### Four-slot team roster bridge (first integration step)
-
-The CSS funding hook now sends protocol v2: all four slot kinds and characters,
-team mode, and the per-slot Red/Blue/Green team IDs. The sidebar displays the
-live roster, including CPUs, before admission. Closed slots and FFA team IDs
-are normalized to 255. Changing teams, mode, characters, or participants
-invalidates previous Start authorization. Old, malformed, and truncated packets
-fail closed. Stopping CSS queries expires the roster and authorization.
-
-This step supplies roster telemetry; the payment host still admits only two
-humans in P1/P2 FFA. Expanded rosters stay visibly blocked until their funding,
-damage attribution, and settlement changes are connected. Do not interpret a
-four-player roster display as four-player payment support.
-
-The intended remaining rules are in [Four-player rules](FourPlayerRules.md).
-Hook tests execute the actual PPC injection under QEMU, and host tests cover
-team/CPU/FFA parsing and admission invalidation. Live captures are under
-`docs/evidence/team-roster-hook/`.
+The host and codeset must match: CSS protocol v2 and private E8 results.
+PPC tests execute the actual hooks, including team stock/timeout results and
+online exclusion. Native tests cover rosters, result validation and ordered
+credits. Rust tests cover conservation, CPU/team exclusions, payout retries,
+verification gates, roster refunds and migration. Live launcher evidence and
+ledger assertions are in [four-player-payments](evidence/four-player-payments/README.md).
+Earlier evidence folders describe earlier versions of this flow.

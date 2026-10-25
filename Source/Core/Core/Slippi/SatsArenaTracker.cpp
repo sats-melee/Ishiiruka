@@ -46,6 +46,14 @@ void Tracker::Start(const std::uint8_t* data, std::size_t length)
 	GetPaymentGate().Reset();
 	++m_snapshot.match_number;
 	m_snapshot.winner_port = -1;
+	m_snapshot.winner_team = -1;
+	m_snapshot.winners = {};
+	m_snapshot.teams = false;
+	m_snapshot.kinds.fill(255);
+	m_snapshot.team_ids.fill(255);
+	m_result_seen = m_result_valid = false;
+	m_result_method = m_result_winners = 0;
+	m_result_team = -1;
 	m_snapshot.game_ended = false;
 	m_snapshot.status = TrackingState::Unsupported;
 	m_snapshot.events.clear();
@@ -61,27 +69,39 @@ void Tracker::Start(const std::uint8_t* data, std::size_t length)
 	m_pending.clear();
 	m_pending_credits.clear();
 	m_finalized = m_latest_received = -124;
-	// Offsets include the command byte. Only modern, local, non-team VS games
-	// with exactly two human/CPU participants are supported in this first version.
-	if (length <= 0x1a4 || data[0x1a4] != 2 || data[0x0d] != 0)
+	// Offsets include the command byte. Modern local VS setup carries all four
+	// slot kinds and the authoritative match-start teams, independently of CSS.
+	if (length <= 0x1a4 || data[0x1a4] != 2 || data[0x0d] > 1)
 		return;
+	m_snapshot.teams = data[0x0d] != 0;
 	int players = 0;
+	unsigned sides = 0;
 	for (std::size_t i = 0; i < 4; ++i)
 	{
 		const auto type = data[0x66 + 0x24 * i];
-		if (type == 2 || type > 3)
+		if (type != 0 && type != 1 && type != 3)
 			return;
+		m_snapshot.kinds[i] = type;
 		m_active[i] = type < 2;
-		players += m_active[i] ? 1 : 0;
+		if (!m_active[i]) continue;
+		++players;
+		if (m_snapshot.teams)
+		{
+			const auto team = data[0x6e + 0x24 * i];
+			if (team > 2) return;
+			m_snapshot.team_ids[i] = team;
+			sides |= 1u << team;
+		}
 	}
-	if (players == 2)
+	if (players >= 2 && (!m_snapshot.teams || (sides && (sides & (sides - 1)))))
 		m_snapshot.status = TrackingState::LocalMatch;
 }
 
 void Tracker::Process(const std::uint8_t* data, std::size_t length)
 {
 	if (!data || length == 0 || (data[0] != 0x36 && data[0] != 0x38 && data[0] != 0x39 &&
-	                           data[0] != 0x3a && data[0] != 0x3c && data[0] != CREDIT_COMMAND))
+	                           data[0] != 0x3a && data[0] != 0x3c && data[0] != CREDIT_COMMAND &&
+	                           data[0] != RESULT_COMMAND))
 		return;
 	std::lock_guard<std::mutex> lock(m_mutex);
 	if (data[0] == 0x36)
@@ -95,20 +115,48 @@ void Tracker::Process(const std::uint8_t* data, std::size_t length)
 	{
 		m_snapshot.status = TrackingState::Finished;
 		m_snapshot.game_ended = true;
-		// Slippi game end: method, LRAS initiator, placements for ports 0..3.
-		if (length >= 7 && data[1] == 2 && data[3] <= 1 && data[4] <= 1)
+		// The private packet carries actual team standings. Individual replay
+		// placements cannot establish a team winner (notably on timeouts).
+		if (length >= 7 && m_result_seen)
 		{
-			int winner = -1;
+			if (m_result_valid && data[1] == m_result_method)
+			{
+				m_snapshot.winner_team = m_result_team;
+				for (int i = 0; i < 4; ++i)
+				{
+					m_snapshot.winners[i] = (m_result_winners & (1u << i)) != 0;
+					if (m_snapshot.winners[i] && m_snapshot.winner_port < 0)
+						m_snapshot.winner_port = i;
+				}
+			}
+		}
+		else if (length >= 7 && !m_snapshot.teams && (data[1] == 1 || data[1] == 2 || data[1] == 3))
+		{
+			int candidate = -1;
 			int winners = 0;
+			bool complete = true;
+			const auto participants = std::count(m_active.begin(), m_active.end(), true);
 			for (int i = 0; i < 4; ++i)
-				if (m_active[i] && data[3 + i] == 0) { winner = i; ++winners; }
-			if (winners == 1)
-				m_snapshot.winner_port = winner;
+			{
+				if (!m_active[i]) { complete = complete && data[3 + i] == 255; continue; }
+				complete = complete && data[3 + i] < participants;
+				if (data[3 + i] == 0) { candidate = i; ++winners; }
+			}
+			if (complete && winners == 1)
+			{
+				m_snapshot.winner_port = candidate;
+				m_snapshot.winners[candidate] = true;
+			}
 		}
 		GetPaymentGate().Reset();
 		m_pending.clear(); // Never promote speculative frames at game end.
 		m_pending_credits.clear();
 		++m_snapshot.revision;
+		return;
+	}
+	if (data[0] == RESULT_COMMAND)
+	{
+		ResultPacket(data, length);
 		return;
 	}
 	if (data[0] == CREDIT_COMMAND)
@@ -173,12 +221,12 @@ void Tracker::MarkIncomplete()
 	}
 }
 
-void Tracker::Publish(const DamageEvent& event)
+void Tracker::Publish(const DamageEvent& observation)
 {
-	m_snapshot.events.push_back(event);
+	auto event = observation;
 	if (event.kind == EventKind::GameCredit)
 	{
-		++m_snapshot.total_credit_events;
+		event.sequence = ++m_snapshot.total_credit_events;
         // Independent of the bounded visible history: UI polling cannot lose payouts.
         m_snapshot.damage_centi[event.victim] +=
             static_cast<std::uint64_t>(std::llround(double(event.amount) * 100.0));
@@ -188,9 +236,45 @@ void Tracker::Publish(const DamageEvent& event)
 	}
 	else
 		++m_snapshot.total_events;
+	m_snapshot.events.push_back(event);
 	++m_snapshot.revision;
 	if (m_snapshot.events.size() > MAX_EVENTS)
 		m_snapshot.events.pop_front();
+}
+
+void Tracker::ResultPacket(const std::uint8_t* data, std::size_t length)
+{
+	m_result_seen = true;
+	m_result_valid = false;
+	m_result_winners = 0;
+	m_result_team = -1;
+	if (length != RESULT_PACKET_SIZE || data[1] != 1 || data[3] > 1 || data[7] != 0 ||
+		(data[3] != 0) != m_snapshot.teams)
+		return;
+	std::uint8_t active = 0;
+	for (int i = 0; i < 4; ++i)
+	{
+		if (m_active[i]) active |= 1u << i;
+		if (data[8 + i] != m_snapshot.kinds[i] || data[12 + i] != m_snapshot.team_ids[i])
+			return; // A result cannot settle a different funded/match-start roster.
+	}
+	if (data[4] != active || !data[5] || (data[5] & ~active) ||
+		(data[2] != 1 && data[2] != 2 && data[2] != 3))
+		return;
+	if (m_snapshot.teams)
+	{
+		if (data[6] > 2) return;
+		std::uint8_t expected = 0;
+		for (int i = 0; i < 4; ++i)
+			if (m_active[i] && m_snapshot.team_ids[i] == data[6]) expected |= 1u << i;
+		if (!expected || expected != data[5]) return;
+		m_result_team = data[6];
+	}
+	else if (data[6] != 255 || (data[5] & (data[5] - 1)))
+		return;
+	m_result_method = data[2];
+	m_result_winners = data[5];
+	m_result_valid = true;
 }
 
 void Tracker::CreditBatch(const std::uint8_t* data, std::size_t length)
@@ -213,7 +297,7 @@ void Tracker::CreditBatch(const std::uint8_t* data, std::size_t length)
 		const auto attacker = record[0];
 		const auto victim = record[2];
 		const auto amount = Percent(record + 8);
-		if (attacker >= 4 || victim >= 4 || attacker == victim || record[1] > 1 || record[3] > 1 ||
+		if (attacker >= 4 || victim >= 4 || record[1] > 1 || record[3] > 1 ||
 		    !m_active[attacker] || !m_active[victim] || !std::isfinite(amount) || amount < 0 || amount > 9999)
 		{
 			m_pending_credits.erase(frame);
@@ -363,9 +447,7 @@ bool PaymentGate::Query(const std::uint8_t* packet, std::size_t length)
 	}
 	roster_valid = roster_valid && participants >= 2 && participants <= 4 &&
 		(!packet[12] || (sides && (sides & (sides - 1))));
-	// Keep expanded rosters gated until their funding and settlement engine is connected.
-	const bool ready = packet[2] && roster_valid && !packet[12] &&
-		packet[4] == 0 && packet[5] == 0 && packet[6] == 3 && packet[7] == 3;
+	const bool ready = packet[2] && roster_valid;
 	std::array<std::uint8_t, 13> selection;
 	std::copy(packet + 4, packet + 17, selection.begin());
 	if (ready != m_view.ready || roster_valid != m_view.roster_valid || selection != m_selection)

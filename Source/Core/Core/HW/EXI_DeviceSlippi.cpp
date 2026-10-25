@@ -3468,9 +3468,14 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
 		}
 
 		u32 payloadLen = payloadSizes[byte];
-		if (byte == CMD_ARENA_CREDIT_BATCH && (_uSize - bufLoc < 392 || payloadLen != 391))
+		if ((byte == CMD_ARENA_CREDIT_BATCH && (_uSize - bufLoc < 392 || payloadLen != 391)) ||
+		    (byte == CMD_ARENA_RESULT && (_uSize - bufLoc < 16 || payloadLen != 15)))
 		{
 			ERROR_LOG(SLIPPI, "Rejected truncated or incorrectly sized Arena diagnostic packet");
+#ifdef SATS_ARENA
+			// A known command with no payload records corruption without reading past DMA.
+			SatsArena::GetTracker().Process(&memPtr[bufLoc], 1);
+#endif
 			return;
 		}
 #ifdef SATS_ARENA
@@ -3481,6 +3486,7 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
 #endif
 		switch (byte)
 		{
+		case CMD_ARENA_RESULT:
 		case CMD_ARENA_CREDIT_BATCH:
 			// Observed above in Arena builds. Never send private diagnostics to
 			// replay files, spectators, the Rust reporter, or the peer.
