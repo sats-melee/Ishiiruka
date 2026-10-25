@@ -76,8 +76,8 @@ cargo test --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-The assembly codeset is unchanged by this payment-model update. A fresh install
-still needs `Tools/arena/build-codeset.sh /path/to/NTSC-U-1.02.iso`.
+The roster bridge now requires the v2 assembly codeset and matching host. A fresh install
+needs `Tools/arena/build-codeset.sh /path/to/NTSC-U-1.02.iso`.
 
 Live verification is recorded under `docs/evidence/prepaid-match/`.
 Older `css-payment-gate/` evidence documents the superseded reservation preview.
@@ -90,3 +90,23 @@ Live batching evidence is in `docs/evidence/batching/`; earlier
 Live receiver checks and GUI evidence for the two user-provided addresses are in
 `docs/evidence/address-verification/`. The protocol details are in
 [`address-verification.md`](../../sats-arena/docs/address-verification.md).
+
+
+### Four-slot team roster bridge (first integration step)
+
+The CSS funding hook now sends protocol v2: all four slot kinds and characters,
+team mode, and the per-slot Red/Blue/Green team IDs. The sidebar displays the
+live roster, including CPUs, before admission. Closed slots and FFA team IDs
+are normalized to 255. Changing teams, mode, characters, or participants
+invalidates previous Start authorization. Old, malformed, and truncated packets
+fail closed. Stopping CSS queries expires the roster and authorization.
+
+This step supplies roster telemetry; the payment host still admits only two
+humans in P1/P2 FFA. Expanded rosters stay visibly blocked until their funding,
+damage attribution, and settlement changes are connected. Do not interpret a
+four-player roster display as four-player payment support.
+
+The intended remaining rules are in [Four-player rules](FourPlayerRules.md).
+Hook tests execute the actual PPC injection under QEMU, and host tests cover
+team/CPU/FFA parsing and admission invalidation. Live captures are under
+`docs/evidence/team-roster-hook/`.

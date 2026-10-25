@@ -91,6 +91,9 @@ public:
 		m_address_warning->SetForegroundColour(wxColour(255, 110, 110));
 		m_address_warning->Wrap(310);
 		root->Add(m_address_warning, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
+		m_roster = new wxStaticText(this, wxID_ANY, "Waiting for character selection...");
+		m_roster->SetName("Live match roster and teams");
+		root->Add(m_roster, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		m_rules = new wxStaticText(this, wxID_ANY,
 			"Connecting wallet...");
 		m_rules->Wrap(310);
@@ -107,6 +110,7 @@ public:
 			m_address[i] = new wxTextCtrl(this, wxID_ANY);
 			m_address[i]->SetHint("name@wallet.com");
 			m_address[i]->SetMaxLength(127);
+			m_address[i]->SetMinSize(wxSize(80, -1));
 			m_address[i]->SetName(wxString::Format("Player %d Lightning Address", i + 1));
 			m_address[i]->Bind(wxEVT_TEXT, [this, i](wxCommandEvent&) { m_addresses_dirty[i] = true; });
 			auto* address_row = new wxBoxSizer(wxHORIZONTAL);
@@ -211,6 +215,31 @@ private:
 		auto& gate = SatsArena::GetPaymentGate();
 		const auto css = gate.Read();
 		const auto match = SatsArena::GetTracker().Read();
+		wxString roster;
+		if (css.kinds[0] < 2 || css.kinds[1] < 2 || css.kinds[2] < 2 || css.kinds[3] < 2)
+		{
+			roster = css.teams ? "TEAM BATTLE" : "FREE-FOR-ALL";
+			const char* team_names[] = {"Red", "Blue", "Green"};
+			for (int i = 0; i < 4; ++i)
+			{
+				if (css.kinds[i] > 1) continue;
+				roster += wxString::Format("\nP%d • %s", i + 1, css.kinds[i] == 1 ? "CPU" : "Human");
+				if (css.teams && css.team_ids[i] < 3)
+					roster += wxString::Format(" • %s Team", team_names[css.team_ids[i]]);
+			}
+		}
+		else roster = "Waiting for a valid character-select roster...";
+		if (css.roster_valid && !css.ready && (view.phase == 1 || view.phase == 2))
+		{
+			m_address_warning->SetLabel("Match blocked: funding is unavailable for this roster.");
+			m_address_warning->Wrap(310);
+			m_address_warning->Show();
+		}
+		else m_address_warning->SetLabel("Match blocked: verify both players' receiving addresses.");
+		m_address_warning->Wrap(310);
+		m_roster->SetLabel(roster);
+		m_roster->Wrap(310);
+
 		// Match events are observed on the core thread; wallet actions stay asynchronous.
 		if (m_start_pending && !view.busy)
 		{
@@ -283,6 +312,7 @@ private:
 		wxString phase;
 		if (view.phase == 0) phase = "Starting payment engine...";
 		else if (view.phase == 7 || view.error[0]) phase = "Payment needs attention";
+		else if (css.roster_valid && !css.ready && (view.phase == 1 || view.phase == 2)) phase = "Match blocked • unsupported roster";
 		else if (m_address_pending >= 0) phase = "Verifying receiving addresses...";
 		else if (!addresses_saved && (view.phase == 1 || view.phase == 2)) phase = "Verify both Lightning Addresses";
 		else if (view.phase == 6) phase = "Sending remaining match payouts...";
@@ -378,6 +408,7 @@ private:
 	std::array<std::uint64_t, 2> m_last_credits = {}, m_pending_credits = {};
 	bool m_credit_pending = false;
 	wxStaticText* m_rules = nullptr;
+	wxStaticText* m_roster = nullptr;
 	wxStaticText* m_phase = nullptr;
 	wxStaticText* m_error = nullptr;
 	wxStaticText* m_payment[2] = {};

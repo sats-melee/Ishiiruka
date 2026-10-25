@@ -98,8 +98,15 @@ Tracker& GetTracker();
 namespace SatsArena
 {
 // A private EXI handshake. No wallet work runs on the emulation thread.
+constexpr std::size_t GATE_PACKET_SIZE = 20;
+constexpr std::uint8_t GATE_PROTOCOL = 2;
 struct GateView
 {
+	bool roster_valid = false; // Full 2–4 participant telemetry, independent of payment support.
+	bool teams = false;
+	std::array<std::uint8_t, 4> kinds = {{255, 255, 255, 255}};
+	std::array<std::uint8_t, 4> characters = {{255, 255, 255, 255}};
+	std::array<std::uint8_t, 4> team_ids = {{255, 255, 255, 255}};
 	bool ready = false;
 	bool requested = false;
 	bool authorized = false;
@@ -116,7 +123,7 @@ public:
 private:
 	mutable std::mutex m_mutex;
 	GateView m_view;
-	std::array<std::uint8_t, 8> m_selection = {};
+	std::array<std::uint8_t, 13> m_selection = {};
 	std::chrono::steady_clock::time_point m_last_query = {};
 	bool m_enabled = true; // Missing UI/engine fails closed.
 };

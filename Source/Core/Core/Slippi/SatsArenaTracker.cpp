@@ -320,26 +320,71 @@ PaymentGate& GetPaymentGate()
 bool PaymentGate::Query(const std::uint8_t* packet, std::size_t length)
 {
 	std::lock_guard<std::mutex> lock(m_mutex);
-	if (!packet || length != 12 || packet[0] != 0xe7 || packet[1] != 1 ||
-		packet[2] > 1 || packet[3] > 1)
+	auto invalidate = [this]() {
+		const auto next = m_view.generation + 1;
+		m_view = {};
+		m_view.generation = next;
+		m_selection = {};
 		return false;
-	if (!m_enabled)
-		return packet[3] != 0; // Preserve ordinary Start behavior in explicit diagnostic mode.
-	m_last_query = std::chrono::steady_clock::now();
-	// Local two-human P1/P2 only. Unsupported rosters never bypass funding.
-	const bool ready = packet[2] && packet[4] == 0 && packet[5] == 0 &&
-					   packet[6] == 3 && packet[7] == 3 &&
-					   packet[8] < 25 && packet[9] < 25;
-	std::array<std::uint8_t, 8> selection;
-	std::copy(packet + 4, packet + 12, selection.begin());
-	if (ready != m_view.ready || selection != m_selection)
+	};
+	if (!packet || length != GATE_PACKET_SIZE || packet[0] != 0xe7 || packet[1] != GATE_PROTOCOL ||
+		packet[2] > 1 || packet[3] > 1 || packet[12] > 1 ||
+		packet[17] || packet[18] || packet[19])
+		return invalidate();
+	const auto now = std::chrono::steady_clock::now();
+	if (m_last_query != std::chrono::steady_clock::time_point{} &&
+		now - m_last_query > std::chrono::milliseconds(500))
 	{
 		++m_view.generation;
-		m_view.ready = ready;
+		m_view.requested = false;
+		m_view.authorized = false;
+	}
+	m_last_query = now;
+	bool roster_valid = true;
+	int participants = 0;
+	unsigned sides = 0;
+	for (int i = 0; i < 4; ++i)
+	{
+		const auto kind = packet[4 + i];
+		const auto team = packet[13 + i];
+		if (kind != 0 && kind != 1 && kind != 3) roster_valid = false;
+		if (kind < 2)
+		{
+			++participants;
+			if (packet[8 + i] >= 25) roster_valid = false;
+			if (packet[12])
+			{
+				if (team > 2) roster_valid = false;
+				else sides |= 1u << team;
+			}
+			else if (team != 255) roster_valid = false;
+		}
+		else if (team != 255) roster_valid = false;
+	}
+	roster_valid = roster_valid && participants >= 2 && participants <= 4 &&
+		(!packet[12] || (sides && (sides & (sides - 1))));
+	// Keep expanded rosters gated until their funding and settlement engine is connected.
+	const bool ready = packet[2] && roster_valid && !packet[12] &&
+		packet[4] == 0 && packet[5] == 0 && packet[6] == 3 && packet[7] == 3;
+	std::array<std::uint8_t, 13> selection;
+	std::copy(packet + 4, packet + 17, selection.begin());
+	if (ready != m_view.ready || roster_valid != m_view.roster_valid || selection != m_selection)
+	{
+		++m_view.generation;
 		m_view.requested = false;
 		m_view.authorized = false;
 		m_selection = selection;
 	}
+	m_view.ready = ready;
+	m_view.roster_valid = roster_valid;
+	m_view.teams = packet[12] != 0;
+	for (int i = 0; i < 4; ++i)
+	{
+		m_view.kinds[i] = packet[4 + i];
+		m_view.characters[i] = packet[8 + i];
+		m_view.team_ids[i] = packet[13 + i];
+	}
+	if (!m_enabled) return packet[3] != 0;
 	if (ready && packet[3])
 		m_view.requested = true;
 	return ready && m_view.requested && m_view.authorized;
@@ -351,7 +396,10 @@ GateView PaymentGate::Read() const
 	if (std::chrono::steady_clock::now() - m_last_query > std::chrono::milliseconds(500))
 	{
 		view.ready = false;
+		view.roster_valid = false;
+		view.kinds.fill(255);
 		view.requested = false;
+		view.authorized = false;
 	}
 	return view;
 }
