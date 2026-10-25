@@ -125,6 +125,8 @@ struct GateView
 	bool requested = false;
 	bool authorized = false;
 	std::uint64_t generation = 0;
+	// Funding follows actual roster/scene edits; transient prompt or polling gaps only revoke admission.
+	std::uint64_t lobby_generation = 0;
 };
 class PaymentGate
 {

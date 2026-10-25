@@ -22,7 +22,7 @@
 #include "Core/Slippi/SatsArenaTracker.h"
 #include "DolphinWX/QR/qrcodegen.hpp"
 #include "sats_arena_local.h"
-static_assert(sizeof(ArenaLocalView) == 14456, "Arena local ABI layout mismatch");
+static_assert(sizeof(ArenaLocalView) == 14464, "Arena local ABI layout mismatch");
 
 namespace SatsArenaLocal
 {
@@ -148,6 +148,7 @@ public:
 			m_pay[i] = new wxButton(card, wxID_ANY, "Simulate payment");
 			m_pay[i]->SetName(wxString::Format("Simulate Player %d payment", i + 1));
 			m_pay[i]->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent&) { Send(i < 2 ? 2 + i : 7 + i); });
+			m_pay[i]->Hide();
 			payment->Add(m_pay[i], 0);
 			body->Add(payment, 1, wxEXPAND);
 			info->Add(body, 0, wxEXPAND);
@@ -203,7 +204,7 @@ private:
 		if (!m_enabled) { m_phase->SetLabel("Payment gate disabled"); return; }
 		ArenaLocalView view = {};
 		if (!m_handle || !arena_local_snapshot(m_handle, &view)) return;
-		if (view.abi_version != 5) { m_error->SetLabel("Payment engine ABI mismatch"); return; }
+		if (view.abi_version != 6) { m_error->SetLabel("Payment engine ABI mismatch"); return; }
 		if (!m_addresses_loaded && view.phase != 0)
 		{
 			for (int i = 0; i < 4; ++i) m_address[i]->ChangeValue(wxString::FromUTF8(view.addresses[i]));
@@ -323,10 +324,10 @@ private:
 				std::array<std::uint32_t, 4> kinds, teams, characters;
 				for (int i = 0; i < 4; ++i) { kinds[i] = css.kinds[i]; teams[i] = css.team_ids[i]; characters[i] = css.characters[i]; }
 				arena_local_roster(m_handle, css.teams, kinds.data(), teams.data(), characters.data());
-				m_lobby_generation = css.generation;
+				m_lobby_generation = css.lobby_generation;
 			}
 			else if ((view.phase == 1 || view.phase == 2) && any_paid &&
-				(!css.roster_valid || (m_lobby_generation && m_lobby_generation != css.generation)))
+				(!Core::IsRunning() || (m_lobby_generation && m_lobby_generation != css.lobby_generation)))
 			{
 				Send(8); // Return funded entries before an altered lobby can start.
 			}
@@ -338,7 +339,7 @@ private:
 				m_credit_pending = false;
 				m_start_pending = Send(4);
 			}
-			else if (roster_matches) m_lobby_generation = css.generation;
+			else if (roster_matches) m_lobby_generation = css.lobby_generation;
 		}
 		const bool show_css = !m_admitted && !m_in_match && (css.kinds[0] < 2 || css.kinds[1] < 2 || css.kinds[2] < 2 || css.kinds[3] < 2);
 		wxString roster = (show_css ? css.teams : bool(view.teams)) ? "TEAM BATTLE" : "FREE-FOR-ALL";
@@ -371,8 +372,8 @@ private:
 		m_address_warning->Wrap(310);
 		m_address_warning->Show(!warning.empty());
 		m_rules->SetLabel(wxString::Format("%s\n%llu sats per human • %llu sats / 1%%\n5-second batches • winners split opponents' pots",
-			view.phase == 7 ? "WALLET UNAVAILABLE • payments blocked" :
-            (view.simulated ? "FAKE WALLET • simulated payments" : "LIGHTNING WALLET • live payments • wallet-managed fees"),
+			view.phase == 0 ? "Connecting wallet..." : (view.phase == 7 ? "WALLET UNAVAILABLE • payments blocked" :
+            (view.sandbox ? "SANDBOX • NWC test payments • no real bitcoin" : (view.simulated ? "FAKE WALLET • simulated payments" : "LIGHTNING WALLET • live payments • wallet-managed fees"))),
 			static_cast<unsigned long long>(view.entry_sats), static_cast<unsigned long long>(view.sats_per_percent)));
 		m_rules->Wrap(310);
 		m_verification_note->Show(funding);
@@ -388,7 +389,7 @@ private:
 			m_player[i]->SetLabel(label);
 			m_address[i]->Show(human);
 			m_verify[i]->Show(human && funding && !m_auto_failure[i].empty());
-			m_address[i]->Enable(human && funding && !any_paid && m_address_pending != i);
+			m_address[i]->Enable(human && funding && !any_paid && m_address_pending != i && !view.sandbox);
 			m_verify[i]->Enable(funding && roster_matches && !view.busy && m_address_pending < 0);
 			const unsigned status = m_addresses_dirty[i] ? 0 : view.verification_state[i];
 			wxString verification;
@@ -417,8 +418,8 @@ private:
 			const wxString invoice = show && view.invoices[i][0] ? wxString::FromUTF8(view.invoices[i]) : "";
 			if (invoice != m_last_invoice[i]) { m_qr[i]->SetBitmap(InvoiceQR(invoice.utf8_str().data())); m_last_invoice[i] = invoice; }
 			m_qr[i]->Show(!invoice.empty());
-			m_pay[i]->SetLabel(view.paid_sats[i] ? "Paid" : "Simulate payment");
-			m_pay[i]->Show(human && view.simulated && funding);
+			m_pay[i]->SetLabel(view.paid_sats[i] ? "Paid" : (view.sandbox ? "Pay from test wallet" : "Simulate payment"));
+			m_pay[i]->Show(human && (view.simulated || view.sandbox) && funding);
 			m_pay[i]->Enable(show && view.phase == 1 && !view.busy && view.paid_sats[i] == 0);
 			m_rows[i]->Layout();
 		}
