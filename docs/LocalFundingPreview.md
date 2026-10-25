@@ -35,8 +35,9 @@ whole sats go in player-port order.
 
 On no contest, interruption, incomplete match data, or a CPU-only winning side,
 keep accrued damage earnings and return unspent contributions to their owners.
-The log is one timestamped timeline from oldest to newest, with the latest
-entry at the bottom. Invoice confirmations say **Player 1 Invoice Paid**.
+Each app launch starts a fresh activity log. Within that session, the log
+is one timestamped timeline from oldest to newest, with the latest entry at the
+bottom. Payment records remain durable for recovery. Invoice confirmations say **Player 1 Invoice Paid**.
 Payouts name the receiving player/address and the winning team. Simulated receipts explicitly say **SIMULATED**. Winnings never
 replace the next match's entry.
 
