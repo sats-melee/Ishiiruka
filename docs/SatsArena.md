@@ -7,8 +7,14 @@ fullscreen operate on their shared parent. A read-only observer consumes the
 existing Slippi replay protocol; it never reads emulated memory, changes rollback
 state, or performs network or wallet operations.
 
-All pots are explicitly placeholders. Lightning, escrow, and funds are not
-connected. Payment labels are non-interactive drawings.
+The standard Arena build now embeds the fake payment engine in this sidebar.
+Melee boots immediately, and the assembly hook gates the local CSS PRESS START
+transition on both budgets. Invoice QR codes, available/reserved balances and
+automatic match settlement are live against the fake ledger. Real Lightning
+payments are not connected. See [the match funding flow](LocalFundingPreview.md).
+
+A build without the adjacent local-engine crate retains the damage-only
+diagnostic sidebar with placeholder balances.
 
 ## Live local damage log
 

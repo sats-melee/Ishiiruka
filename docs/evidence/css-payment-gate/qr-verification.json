@@ -1,0 +1,14 @@
+{
+  "decoded_fake_invoice_amounts_sats": {
+    "01-unpaid-start-blocked.png": [
+      500,
+      500
+    ],
+    "02-one-payment-blocked.png": [
+      500
+    ],
+    "06-next-match-payment.png": [
+      100
+    ]
+  }
+}

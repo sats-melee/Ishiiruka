@@ -3430,6 +3430,19 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
 		slprs_exi_device_reporter_push_replay_data(slprs_exi_device_ptr, &memPtr[0], receiveCommandsLen + 1);
 	}
 
+    if (byte == CMD_ARENA_PAYMENT_GATE)
+    {
+        // Private request/reply; never enters replay files or spectator streams.
+        m_read_queue.clear();
+        bool allow = false;
+#ifdef SATS_ARENA
+        allow = SatsArena::GetPaymentGate().Query(memPtr, _uSize);
+#endif
+        m_read_queue.push_back(allow ? 1 : 0);
+        g_needInputForFrame = true;
+        return;
+    }
+
 	if (byte == CMD_MENU_FRAME)
 	{
 		m_slippiserver->write(&memPtr[0], _uSize);

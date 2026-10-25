@@ -1,3 +1,18 @@
+#ifdef SATS_ARENA_LOCAL
+#include "DolphinWX/SatsArenaPanel.h"
+#include "DolphinWX/SatsArenaLocal.h"
+#include <wx/sizer.h>
+SatsArenaPanel::SatsArenaPanel(wxWindow* parent)
+    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxSize(350, -1)), m_timer(this)
+{
+    SetMinSize(wxSize(350, -1));
+    auto* root = new wxBoxSizer(wxVERTICAL);
+    m_funding = SatsArenaLocal::CreateSidebar(this);
+    root->Add(m_funding, 1, wxEXPAND);
+    SetSizer(root);
+}
+SatsArenaPanel::~SatsArenaPanel() = default;
+#else
 // Copyright 2026 Sats Arena contributors
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
@@ -9,10 +24,6 @@
 #include <wx/dcbuffer.h>
 #include <wx/settings.h>
 #include <wx/textctrl.h>
-#ifdef SATS_ARENA_LOCAL
-#include <wx/button.h>
-#include "DolphinWX/SatsArenaLocal.h"
-#endif
 
 namespace
 {
@@ -117,10 +128,6 @@ SatsArenaPanel::SatsArenaPanel(wxWindow* parent)
 	m_log->SetForegroundColour(TEXT);
 	m_log->SetFont(wxFont(9, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 	m_log->SetName("Finalized player damage log");
-#ifdef SATS_ARENA_LOCAL
-	m_funding = new wxButton(this, wxID_ANY, "Local funding demo (FAKE)");
-	m_funding->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { SatsArenaLocal::ShowFunding(this); });
-#endif
 	Bind(wxEVT_PAINT, &SatsArenaPanel::OnPaint, this);
 	Bind(wxEVT_SIZE, [this](wxSizeEvent& event) {
 		LayoutActivity();
@@ -147,9 +154,6 @@ void SatsArenaPanel::LayoutActivity()
 	m_log->SetSize(px(22), px(layout.activity_y + 40), px(layout.width - 44),
 	               px(layout.footer_y - layout.activity_y - 54));
 	m_log->ShowPosition(m_log->GetLastPosition());
-#ifdef SATS_ARENA_LOCAL
-	m_funding->SetSize(px(20), px(layout.footer_y), px(layout.width - 40), px(36));
-#endif
 }
 
 void SatsArenaPanel::UpdateLog(bool force)
@@ -245,3 +249,5 @@ void SatsArenaPanel::OnPaint(wxPaintEvent&)
 	Label(dc, "Pots are placeholders. Lightning is offline.", margin, footer_y + 89, 8, MUTED);
 	Label(dc, "BUILT FOR FRIENDLY RIVALRIES", margin, footer_y + 119, 7, MUTED);
 }
+
+#endif

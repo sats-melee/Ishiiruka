@@ -43,6 +43,10 @@ Tracker& GetTracker()
 
 void Tracker::Start(const std::uint8_t* data, std::size_t length)
 {
+	GetPaymentGate().Reset();
+	++m_snapshot.match_number;
+	m_snapshot.winner_port = -1;
+	m_snapshot.game_ended = false;
 	m_snapshot.status = TrackingState::Unsupported;
 	m_snapshot.events.clear();
 	m_snapshot.credit_events.clear();
@@ -89,6 +93,18 @@ void Tracker::Process(const std::uint8_t* data, std::size_t length)
 	if (data[0] == 0x39)
 	{
 		m_snapshot.status = TrackingState::Finished;
+		m_snapshot.game_ended = true;
+		// Slippi game end: method, LRAS initiator, placements for ports 0..3.
+		if (length >= 7 && data[1] == 2 && data[3] <= 1 && data[4] <= 1)
+		{
+			int winner = -1;
+			int winners = 0;
+			for (int i = 0; i < 4; ++i)
+				if (m_active[i] && data[3 + i] == 0) { winner = i; ++winners; }
+			if (winners == 1)
+				m_snapshot.winner_port = winner;
+		}
+		GetPaymentGate().Reset();
 		m_pending.clear(); // Never promote speculative frames at game end.
 		m_pending_credits.clear();
 		++m_snapshot.revision;
@@ -272,6 +288,7 @@ void Tracker::Finalize(std::int32_t frame)
 
 void Tracker::Stop()
 {
+	GetPaymentGate().Reset();
 	std::lock_guard<std::mutex> lock(m_mutex);
 	if (m_snapshot.status == TrackingState::LocalMatch)
 	{
@@ -286,5 +303,74 @@ Snapshot Tracker::Read() const
 {
 	std::lock_guard<std::mutex> lock(m_mutex);
 	return m_snapshot;
+}
+}
+
+namespace SatsArena
+{
+PaymentGate& GetPaymentGate()
+{
+	static PaymentGate gate;
+	return gate;
+}
+bool PaymentGate::Query(const std::uint8_t* packet, std::size_t length)
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	if (!packet || length != 12 || packet[0] != 0xe7 || packet[1] != 1 ||
+		packet[2] > 1 || packet[3] > 1)
+		return false;
+	if (!m_enabled)
+		return packet[3] != 0; // Preserve ordinary Start behavior in explicit diagnostic mode.
+	m_last_query = std::chrono::steady_clock::now();
+	// Local two-human P1/P2 only. Unsupported rosters never bypass funding.
+	const bool ready = packet[2] && packet[4] == 0 && packet[5] == 0 &&
+					   packet[6] == 3 && packet[7] == 3 &&
+					   packet[8] < 25 && packet[9] < 25;
+	std::array<std::uint8_t, 8> selection;
+	std::copy(packet + 4, packet + 12, selection.begin());
+	if (ready != m_view.ready || selection != m_selection)
+	{
+		++m_view.generation;
+		m_view.ready = ready;
+		m_view.requested = false;
+		m_view.authorized = false;
+		m_selection = selection;
+	}
+	if (ready && packet[3])
+		m_view.requested = true;
+	return ready && m_view.requested && m_view.authorized;
+}
+GateView PaymentGate::Read() const
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	auto view = m_view;
+	if (std::chrono::steady_clock::now() - m_last_query > std::chrono::milliseconds(500))
+	{
+		view.ready = false;
+		view.requested = false;
+	}
+	return view;
+}
+bool PaymentGate::Authorize(std::uint64_t generation)
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	if (!m_view.ready || !m_view.requested || generation != m_view.generation ||
+		std::chrono::steady_clock::now() - m_last_query > std::chrono::milliseconds(500))
+		return false;
+	m_view.authorized = true;
+	return true;
+}
+void PaymentGate::Reset()
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	const auto next = m_view.generation + 1;
+	m_view = {};
+	m_view.generation = next;
+	m_selection = {};
+}
+void PaymentGate::Enable(bool enabled)
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	m_enabled = enabled;
 }
 }

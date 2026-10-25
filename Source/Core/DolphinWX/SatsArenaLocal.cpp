@@ -4,16 +4,18 @@
 #include <cstdlib>
 #include <cstring>
 #include <wx/button.h>
-#include <wx/dialog.h>
-#include <wx/msgdlg.h>
+#include <wx/dcmemory.h>
+#include <wx/scrolwin.h>
 #include <wx/sizer.h>
+#include <wx/statbmp.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
 #include <wx/timer.h>
-#include <wx/toplevel.h>
 
 #include "Common/FileUtil.h"
 #include "Core/Core.h"
+#include "Core/Slippi/SatsArenaTracker.h"
+#include "DolphinWX/QR/qrcodegen.hpp"
 #include "sats_arena_local.h"
 static_assert(sizeof(ArenaLocalView) == 576, "Arena local ABI layout mismatch");
 
@@ -21,8 +23,6 @@ namespace SatsArenaLocal
 {
 namespace
 {
-bool s_enabled = false;
-
 struct Host
 {
 	ArenaLocalHandle* handle = nullptr;
@@ -33,179 +33,244 @@ struct Host
 		{
 			const char* override_path = std::getenv("SATS_ARENA_FAKE_DATA_DIR");
 			const std::string folder = override_path && *override_path ? override_path :
-			    File::GetUserPath(D_USER_IDX) + "SatsArenaFake";
+				File::GetUserPath(D_USER_IDX) + "SatsArenaFake";
 			handle = arena_local_create(folder.c_str());
 		}
 		return handle;
 	}
 };
-
 Host& GetHost() { static Host host; return host; }
 
-wxString Phase(unsigned phase)
+wxBitmap InvoiceQR(const char* invoice)
 {
-	switch (phase)
+	constexpr int size = 116;
+	wxBitmap bitmap(size, size);
+	wxMemoryDC dc(bitmap);
+	dc.SetBackground(*wxWHITE_BRUSH);
+	dc.Clear();
+	if (*invoice)
 	{
-	case 0: return "Opening local engine...";
-	case 1: return "Funding: both players must pay and reserve their budgets.";
-	case 2: return "Ready: both 500-sat budgets are reserved.";
-	case 3: return "Session started. Finish it below after stopping emulation.";
-	case 4: return "Settled. Unused fake funds are available for the next lobby.";
-	case 5: return "Cancelled. Reserved funds returned to player balances.";
-	case 6: return "Disputed: funds remain reserved for review.";
-	default: return "Local engine error.";
+		const auto qr = qrcodegen::QrCode::encodeText(invoice, qrcodegen::QrCode::Ecc::MEDIUM);
+		const int modules = qr.getSize();
+		const int scale = size / (modules + 8);
+		const int offset = (size - modules * scale) / 2;
+		dc.SetPen(*wxTRANSPARENT_PEN);
+		dc.SetBrush(*wxBLACK_BRUSH);
+		for (int y = 0; y < modules; ++y)
+			for (int x = 0; x < modules; ++x)
+				if (qr.getModule(x, y))
+					dc.DrawRectangle(offset + x * scale, offset + y * scale, scale, scale);
 	}
+	dc.SelectObject(wxNullBitmap);
+	return bitmap;
 }
 
-class FundingDialog final : public wxDialog
+class FundingPanel final : public wxScrolledWindow
 {
 public:
-	FundingDialog(wxWindow* parent, bool for_boot) : wxDialog(wxGetTopLevelParent(parent), wxID_ANY, "Sats Arena - FAKE local funding",
-	    wxDefaultPosition, wxSize(660, 700), wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER), m_timer(this), m_for_boot(for_boot)
+	explicit FundingPanel(wxWindow* parent)
+		: wxScrolledWindow(parent, wxID_ANY), m_timer(this)
 	{
-		m_handle = GetHost().Get();
+		SetBackgroundColour(wxColour(16, 20, 25));
+		SetForegroundColour(wxColour(244, 246, 248));
+		SetScrollRate(0, 12);
+		SetName("Sats Arena match funding");
+		const char* env = std::getenv("SATS_ARENA_FAKE_LOCAL");
+		m_enabled = !env || std::strcmp(env, "0") != 0;
+		SatsArena::GetPaymentGate().Enable(m_enabled);
+		m_handle = m_enabled ? GetHost().Get() : nullptr;
 		auto* root = new wxBoxSizer(wxVERTICAL);
+		auto* title = new wxStaticText(this, wxID_ANY, "SATS ARENA");
+		title->SetFont(wxFont(17, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
+		root->Add(title, 0, wxALL, 16);
+		m_phase = new wxStaticText(this, wxID_ANY, "Starting payment engine...");
+		m_phase->SetFont(wxFont(11, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
+		root->Add(m_phase, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		auto* notice = new wxStaticText(this, wxID_ANY,
-		    "FAKE WALLET ONLY - no real sats, no NWC connection.\n"
-		    "500 sats maximum loss per player; 100-sat win bonus; damage billing OFF.\n"
-		    "This gates emulator launch, not every in-game match. Results below are manual test inputs.");
-		notice->Wrap(620);
-		root->Add(notice, 0, wxALL | wxEXPAND, 12);
-		m_phase = new wxStaticText(this, wxID_ANY, "Opening local engine...");
-		root->Add(m_phase, 0, wxALL | wxEXPAND, 12);
+			"FAKE WALLET • test QR codes only\n500 sats budget each • 100 sats win bonus\nDamage billing off");
+		notice->Wrap(310);
+		root->Add(notice, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		for (int i = 0; i < 2; ++i)
 		{
-			m_player[i] = new wxStaticText(this, wxID_ANY, wxString::Format("Player %d: waiting...", i + 1));
-			root->Add(m_player[i], 0, wxLEFT | wxRIGHT | wxTOP | wxEXPAND, 12);
-			m_invoice[i] = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxTE_READONLY);
-			m_invoice[i]->SetName(wxString::Format("Player %d fake invoice", i + 1));
-			root->Add(m_invoice[i], 0, wxALL | wxEXPAND, 12);
-			m_pay[i] = new wxButton(this, wxID_ANY, wxString::Format("Simulate Player %d payment", i + 1));
+			auto* row = new wxBoxSizer(wxHORIZONTAL);
+			m_qr[i] = new wxStaticBitmap(this, wxID_ANY, InvoiceQR(""));
+			m_qr[i]->SetName(wxString::Format("Player %d payment QR code", i + 1));
+			row->Add(m_qr[i], 0, wxRIGHT, 12);
+			auto* info = new wxBoxSizer(wxVERTICAL);
+			auto* player = new wxStaticText(this, wxID_ANY, wxString::Format("PLAYER %d", i + 1));
+			info->Add(player, 0, wxBOTTOM, 8);
+			m_balance[i] = new wxStaticText(this, wxID_ANY, "Waiting...");
+			info->Add(m_balance[i], 0, wxBOTTOM, 8);
+			m_pay[i] = new wxButton(this, wxID_ANY, "Simulate payment");
+			m_pay[i]->SetName(wxString::Format("Simulate Player %d payment", i + 1));
 			m_pay[i]->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent&) { Send(2 + i); });
-			root->Add(m_pay[i], 0, wxLEFT | wxRIGHT | wxBOTTOM, 12);
+			info->Add(m_pay[i], 0);
+			row->Add(info, 1, wxEXPAND);
+			root->Add(row, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
+			m_invoice[i] = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_READONLY);
+			m_invoice[i]->SetName(wxString::Format("Player %d invoice", i + 1));
+			root->Add(m_invoice[i], 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		}
-		m_error = new wxStaticText(this, wxID_ANY, wxEmptyString);
-		m_error->SetForegroundColour(wxColour(220, 90, 65));
-		root->Add(m_error, 0, wxALL | wxEXPAND, 12);
-		auto* actions = new wxBoxSizer(wxHORIZONTAL);
-		m_start = new wxButton(this, wxID_ANY, for_boot ? "Start funded session" : "Return to Play");
-		m_start->Enable(false);
-		m_start->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-			if (!m_for_boot) { EndModal(wxID_CANCEL); return; }
-			m_starting = Send(4);
-		});
-		actions->Add(m_start, 0, wxRIGHT, 8);
-		m_cancel = new wxButton(this, wxID_ANY, "Cancel funding");
-		m_cancel->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { Send(5); });
-		actions->Add(m_cancel, 0, wxRIGHT, 8);
-		m_new = new wxButton(this, wxID_ANY, "New lobby");
-		m_new->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { Send(1); });
-		actions->Add(m_new);
-		root->Add(actions, 0, wxALL, 12);
-		root->Add(new wxStaticText(this, wxID_ANY, "Manual fake result (not inferred from the game):"), 0, wxLEFT | wxTOP, 12);
-		auto* results = new wxBoxSizer(wxHORIZONTAL);
-		const char* labels[] = { "Player 1 wins", "Player 2 wins", "No contest" };
-		for (int i = 0; i < 3; ++i)
-		{
-			m_finish[i] = new wxButton(this, wxID_ANY, labels[i]);
-			m_finish[i]->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent&) { Send(6 + i); });
-			results->Add(m_finish[i], 0, wxRIGHT, 8);
-		}
-		root->Add(results, 0, wxALL, 12);
-		auto* close = new wxButton(this, wxID_CANCEL, "Keep funds and close");
-		root->Add(close, 0, wxALL | wxALIGN_RIGHT, 12);
+		m_error = new wxStaticText(this, wxID_ANY, "");
+		m_error->SetForegroundColour(wxColour(255, 160, 135));
+		root->Add(m_error, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
+		root->Add(new wxStaticText(this, wxID_ANY, "Match activity"), 0, wxLEFT | wxRIGHT | wxBOTTOM, 16);
+		m_log = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxSize(-1, 130),
+			wxTE_MULTILINE | wxTE_READONLY);
+		m_log->SetBackgroundColour(wxColour(20, 25, 31));
+		m_log->SetForegroundColour(wxColour(244, 246, 248));
+		m_log->SetFont(wxFont(9, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
+		root->Add(m_log, 1, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
+		auto* help = new wxStaticText(this, wxID_ANY,
+			"Choose two characters. Funding unlocks PRESS START.\nResults settle automatically; the next match stays in Melee.");
+		help->Wrap(310);
+		root->Add(help, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		SetSizer(root);
-		SetMinSize(wxSize(650, 680));
-		CentreOnParent();
-		Bind(wxEVT_SHOW, [this](wxShowEvent& event) {
-			if (event.IsShown())
-			{
-				Raise();
-				m_start->SetFocus();
-			}
-			event.Skip();
-		});
 		Bind(wxEVT_TIMER, [this](wxTimerEvent&) { Poll(); });
 		m_timer.Start(100);
 		Poll();
 	}
-
-	~FundingDialog() override { m_timer.Stop(); }
+	~FundingPanel() override { m_timer.Stop(); }
 
 private:
 	bool Send(unsigned action)
 	{
 		if (!m_handle || !arena_local_action(m_handle, action))
-		{
-			m_error->SetLabel("Engine is busy. Please try again.");
 			return false;
-		}
-		m_start->Enable(false);
 		return true;
 	}
 
 	void Poll()
 	{
+		if (!m_enabled)
+		{
+			m_phase->SetLabel("Payment gate disabled");
+			for (int i = 0; i < 2; ++i) { m_pay[i]->Disable(); m_qr[i]->Hide(); }
+			return;
+		}
 		ArenaLocalView view = {};
-		if (!m_handle) { m_error->SetLabel("Could not create the local fake engine."); return; }
-		if (!arena_local_snapshot(m_handle, &view)) return;
-		if (view.abi_version != 1) { m_error->SetLabel("Local engine ABI mismatch."); return; }
-		m_phase->SetLabel(Phase(view.phase));
+		if (!m_handle || !arena_local_snapshot(m_handle, &view))
+			return;
+		if (view.abi_version != 1)
+		{
+			m_error->SetLabel("Payment engine ABI mismatch");
+			return;
+		}
+		auto& gate = SatsArena::GetPaymentGate();
+		const auto css = gate.Read();
+		const auto match = SatsArena::GetTracker().Read();
+		// Match events are observed on the core thread; wallet actions stay asynchronous.
+		if (m_start_pending && !view.busy)
+		{
+			m_start_pending = false;
+			if (view.phase == 3 && !view.error[0])
+			{
+				if (gate.Authorize(m_generation))
+					m_admitted = true;
+				else
+					m_abandon = true; // Selection changed while the worker admitted.
+			}
+		}
+		if (m_admitted && match.match_number != m_match_number &&
+			(match.status == SatsArena::TrackingState::LocalMatch ||
+			 match.status == SatsArena::TrackingState::Finished))
+			m_in_match = true;
+		if (!view.busy && view.phase == 3)
+		{
+			if (m_in_match && match.status == SatsArena::TrackingState::Finished)
+			{
+				const unsigned result = match.game_ended && match.winner_port >= 0 &&
+					match.winner_port <= 1 ? 6 + match.winner_port : 8;
+				if (Send(result)) { m_in_match = false; m_admitted = false; m_settling = true; }
+			}
+			else if (!m_settling && (m_abandon || (!m_admitted && !m_start_pending)))
+			{
+				// Recover a previous interrupted fake session without inventing a winner.
+				if (Send(8)) { m_abandon = false; m_admitted = false; }
+			}
+			else if (m_admitted && !m_in_match &&
+					 (!Core::IsRunning() || css.generation != m_generation))
+			{
+				gate.Reset();
+				if (Send(8)) m_admitted = false;
+			}
+		}
+		else if (!view.busy && (view.phase == 4 || view.phase == 5))
+		{
+			m_settling = false;
+			Send(1); // Prepare the next match; unspent balances can fund its budget.
+		}
+		else if (!view.busy && view.phase == 2 && css.ready && css.requested &&
+				 !m_start_pending && !view.error[0])
+		{
+			m_generation = css.generation;
+			m_match_number = match.match_number;
+			m_start_pending = Send(4); // Single-use admission must be acknowledged before grant.
+		}
+
+		wxString phase;
+		if (view.phase == 0) phase = "Starting payment engine...";
+		else if (view.phase == 6 || view.phase == 7) phase = "Payment needs attention";
+		else if (m_in_match) phase = "Match in progress";
+		else if (m_admitted) phase = "Funded • choose a stage";
+		else if (!css.ready && match.game_ended)
+			phase = match.winner_port >= 0 ? wxString::Format("Player %d wins • next match", match.winner_port + 1) : wxString("No contest • next match");
+		else if (!css.ready) phase = "Choose two characters (P1 / P2)";
+		else if (view.phase == 2) phase = css.requested ? "Confirming match admission..." : "Both funded • PRESS START";
+		else if (view.phase == 3 || view.phase == 4) phase = "Settling previous match...";
+		else phase = css.requested ? "Start queued • waiting for payment" : "PRESS START • waiting for payment";
+		m_phase->SetLabel(phase);
+		m_phase->Wrap(310);
 		for (int i = 0; i < 2; ++i)
 		{
-			m_player[i]->SetLabel(wxString::Format("Player %d: %llu available / %llu reserved sats", i + 1,
-			    static_cast<unsigned long long>(view.available_sats[i]), static_cast<unsigned long long>(view.reserved_sats[i])));
-			m_invoice[i]->ChangeValue(view.invoices[i][0] ? wxString::FromUTF8(view.invoices[i]) : "No payment needed");
-			m_pay[i]->Enable(!view.busy && view.phase == 1 && view.reserved_sats[i] == 0);
+			m_balance[i]->SetLabel(wxString::Format("%llu available\n%llu reserved",
+				static_cast<unsigned long long>(view.available_sats[i]),
+				static_cast<unsigned long long>(view.reserved_sats[i])));
+			const bool show = css.ready && !m_admitted && (view.phase == 1 || view.phase == 2);
+			const wxString invoice = show && view.invoices[i][0] ? wxString::FromUTF8(view.invoices[i]) : "";
+			if (invoice != m_last_invoice[i])
+			{
+				m_qr[i]->SetBitmap(InvoiceQR(invoice.utf8_str().data()));
+				m_last_invoice[i] = invoice;
+			}
+			m_qr[i]->Show(!invoice.empty());
+			m_invoice[i]->ChangeValue(!invoice.empty() ? invoice :
+				wxString(view.reserved_sats[i] ? "Budget confirmed" : "Waiting for character selection"));
+			m_pay[i]->Enable(show && view.phase == 1 && !view.busy && view.reserved_sats[i] == 0);
 		}
-		m_start->Enable(!view.busy && view.phase == 2 && !m_starting);
-		m_cancel->Enable(!view.busy && (view.phase == 1 || view.phase == 2));
-		m_new->Enable(!view.busy && (view.phase == 4 || view.phase == 5));
-		for (auto* button : m_finish) button->Enable(!view.busy && view.phase == 3 && !Core::IsRunning());
 		m_error->SetLabel(wxString::FromUTF8(view.error));
-		m_error->Wrap(620);
-		if (m_starting && !view.busy && (view.phase == 3 || view.error[0]))
+		m_error->Wrap(310);
+		if (m_log_revision != match.revision)
 		{
-			m_starting = false;
-			if (view.phase == 3 && !view.error[0]) EndModal(wxID_OK);
+			m_log_revision = match.revision;
+			wxString text;
+			if (match.credit_stream_incomplete) text += "Credit capture incomplete\n";
+			for (const auto& event : match.credit_events)
+				text += wxString::Format("f%d  P%d -> P%d +%.1f\n", event.frame,
+					event.attacker + 1, event.victim + 1, event.amount);
+			if (match.game_ended)
+				text += match.winner_port >= 0 ? wxString::Format("Player %d wins\n", match.winner_port + 1) : "No contest / tied result\n";
+			m_log->ChangeValue(text);
+			m_log->ShowPosition(m_log->GetLastPosition());
 		}
 		Layout();
+		FitInside();
 	}
 
 	ArenaLocalHandle* m_handle = nullptr;
 	wxTimer m_timer;
-	bool m_for_boot = false;
-	bool m_starting = false;
+	bool m_enabled = true, m_start_pending = false, m_admitted = false;
+	bool m_in_match = false, m_abandon = false, m_settling = false;
+	std::uint64_t m_generation = 0, m_match_number = 0, m_log_revision = ~std::uint64_t(0);
 	wxStaticText* m_phase = nullptr;
 	wxStaticText* m_error = nullptr;
-	wxStaticText* m_player[2] = {};
+	wxStaticText* m_balance[2] = {};
+	wxStaticBitmap* m_qr[2] = {};
 	wxTextCtrl* m_invoice[2] = {};
+	wxTextCtrl* m_log = nullptr;
 	wxButton* m_pay[2] = {};
-	wxButton* m_start = nullptr;
-	wxButton* m_cancel = nullptr;
-	wxButton* m_new = nullptr;
-	wxButton* m_finish[3] = {};
+	wxString m_last_invoice[2];
 };
 }
-
-bool AllowBoot(wxWindow* parent, const std::string&)
-{
-	const char* env = std::getenv("SATS_ARENA_FAKE_LOCAL");
-	if (!s_enabled && (!env || std::strcmp(env, "1") != 0)) return true;
-	s_enabled = true;
-	FundingDialog dialog(parent, true);
-	return dialog.ShowModal() == wxID_OK;
-}
-
-void ShowFunding(wxWindow* parent)
-{
-	if (Core::IsRunning())
-	{
-		wxMessageBox("Stop emulation before preparing a fake funded session.", "Sats Arena", wxOK | wxICON_INFORMATION, parent);
-		return;
-	}
-	s_enabled = true;
-	FundingDialog dialog(parent, false);
-	dialog.ShowModal();
-}
+wxWindow* CreateSidebar(wxWindow* parent) { return new FundingPanel(parent); }
 }

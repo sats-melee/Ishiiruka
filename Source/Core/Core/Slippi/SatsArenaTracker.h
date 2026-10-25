@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <chrono>
 #include <deque>
 #include <map>
 #include <mutex>
@@ -41,10 +42,13 @@ struct Snapshot
 {
 	TrackingState status = TrackingState::Waiting;
 	std::uint64_t revision = 0;
+	std::uint64_t match_number = 0;
 	std::uint64_t total_events = 0;
 	std::deque<DamageEvent> events;
 	std::deque<DamageEvent> credit_events; // Credit-only history for the visible log.
 	std::uint64_t total_credit_events = 0;
+	int winner_port = -1; // Derived only from a complete normal game-end packet.
+	bool game_ended = false;
 	bool credit_stream_seen = false;
 	bool credit_stream_incomplete = false;
 };
@@ -88,4 +92,32 @@ private:
 };
 
 Tracker& GetTracker();
+}
+
+namespace SatsArena
+{
+// A private EXI handshake. No wallet work runs on the emulation thread.
+struct GateView
+{
+	bool ready = false;
+	bool requested = false;
+	bool authorized = false;
+	std::uint64_t generation = 0;
+};
+class PaymentGate
+{
+public:
+	bool Query(const std::uint8_t* packet, std::size_t length);
+	GateView Read() const;
+	bool Authorize(std::uint64_t generation);
+	void Reset();
+	void Enable(bool enabled);
+private:
+	mutable std::mutex m_mutex;
+	GateView m_view;
+	std::array<std::uint8_t, 8> m_selection = {};
+	std::chrono::steady_clock::time_point m_last_query = {};
+	bool m_enabled = true; // Missing UI/engine fails closed.
+};
+PaymentGate& GetPaymentGate();
 }

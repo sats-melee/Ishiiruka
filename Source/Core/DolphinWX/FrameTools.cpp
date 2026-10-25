@@ -64,9 +64,6 @@
 #include "DolphinWX/Frame.h"
 #ifdef SATS_ARENA
 #include "Core/Slippi/SatsArenaTracker.h"
-#ifdef SATS_ARENA_LOCAL
-#include "DolphinWX/SatsArenaLocal.h"
-#endif
 #endif
 #include "DolphinWX/GameListCtrl.h"
 #include "DolphinWX/Globals.h"
@@ -653,12 +650,6 @@ void CFrame::StartGame(const std::string& filename)
 {
 	if (m_bGameLoading)
 		return;
-#ifdef SATS_ARENA_LOCAL
-	// Opt-in FAKE funded-session preview. No emulation has started yet, and
-	// the modal dialog only polls a Rust worker; never wait on wallet I/O here.
-	if (!SatsArenaLocal::AllowBoot(this, filename))
-		return;
-#endif
 	m_bGameLoading = true;
 
 	GetToolBar()->EnableTool(IDM_PLAY, false);

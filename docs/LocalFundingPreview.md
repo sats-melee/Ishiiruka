@@ -1,38 +1,81 @@
-# Embedded local funding preview (fake only)
+# Match funding in the sidebar (fake wallet)
 
-Build with `ENABLE_SATS_ARENA=ON` and an adjacent `sats-arena` checkout (or
-set `SATS_ARENA_ENGINE_DIR` in CMake). The `sats-arena-local` Rust shared library
-is linked into Dolphin; there is no HTTP listener or separate payment server.
+Launch with `make app` or `make arena`: Melee boots immediately. The sidebar is
+part of the game window. There is no launch-time funding dialog or manual
+result-entry flow.
 
-`make app` (and `make arena`) enables the fake funding gate by default. When a
-saved ISO is available, the funding dialog opens before that ISO boots. Fund
-both players and select **Start funded session** to launch emulation. Closing
-the dialog leaves emulation stopped; press Play to reopen the gate.
+## Match loop
 
-To prepare funding separately, stop emulation, then select **Local funding demo (FAKE)** in the sidebar.
-Each player receives a fake invoice. **Simulate Player 1/2 payment** confirms
-that invoice through the fake wallet and reserves their 500-sat game budget.
-Start stays disabled until both budgets are reserved. Existing confirmed
-balances can be reused instead of paying again. Cancellation returns reserved
-funds to player balances, not a Lightning refund.
+1. Select two human characters on P1 and P2 in local, non-team Versus.
+2. When Melee displays **PRESS START**, the sidebar displays each unpaid
+   player's invoice and QR code. These are **test invoices**, not payable
+   Lightning invoices. Use each player's **Simulate payment** button.
+3. Start cannot leave character select until both 500-sat budgets are confirmed
+   and reserved. A Start pressed while unpaid is queued. The second payment
+   releases that queued Start automatically; otherwise press Start normally.
+4. Choose a stage and play. The sidebar shows real available/reserved balances
+   from the fake ledger and finalized damage-credit activity.
+5. A normal game-end event and placements settle the 100-sat win bonus.
+   No-contest, ambiguous results, and emulator stop produce no winner.
+   Damage billing remains zero.
+6. Stay in Melee, return through results to character select, and fund the next
+   match at PRESS START. Confirmed balances are reusable; only a shortfall
+   receives a new invoice. For example, after P1 wins the first match, P1 has
+   600 sats, P2 has 400, and P2 needs 100 more to reserve the next 500-sat budget.
 
-After closing the funding window, press Play: **Start funded session** consumes
-the ready lobby's single-use start transition before Dolphin boots. Direct
-binary launches can enable the same gate with `SATS_ARENA_FAKE_LOCAL=1`.
-`start.sh` enables it by default, including across Flatpak/Distrobox boundaries.
-The dialog is centered on the main application window.
+Characters can be changed while funding. Changing selections revokes pending
+game authorization. Returning to character select from stage select invalidates
+that admission and resolves the abandoned fake match as no contest before
+preparing a new one. Admission is single-use and matched to the current CSS
+generation; a delayed worker acknowledgement cannot unlock a different selection.
 
-This is a **pre-launch session gate, not a stage-select gate for every match**.
-After stopping emulation, use the sidebar's explicitly manual fake result
-buttons to settle or record a no-contest, then create a new lobby. These inputs
-are not proof of the game result. Live tracker damage is NOT billed by this
-preview (damage rate is zero, win bonus 100 sats). For ungated preview play, run
-`SATS_ARENA_FAKE_LOCAL=0 make app`. Selecting the sidebar demo still enables the
-gate for subsequent launches in that process.
+## Build and protocol
 
-All money operations run on a Rust background thread and use the shared core
-engine/SQLite ledger. Fake data lives under `<Dolphin user>/SatsArenaFake/`.
-`SATS_ARENA_FAKE_DATA_DIR` overrides that directory for isolated tests. Pending,
-ready, and started lobbies survive restarts; started sessions must be explicitly
-finished and cannot be started twice. There is no NWC key or real-wallet option
-in this host, and its database must never be reused with a real wallet.
+Build with `ENABLE_SATS_ARENA=ON` and the adjacent `sats-arena` workspace
+(or set `SATS_ARENA_ENGINE_DIR`). Rebuild/install the Arena codeset first:
+
+```sh
+bash Tools/arena/build-codeset.sh /path/to/NTSC-U-1.02.iso
+bash Tools/arena/build.sh
+bash Tools/arena/test.sh
+```
+
+The assembly branch adds a verified hook at `0x80263250`, after the CSS prompt
+readiness calculation and before Start handling. It sends a private 12-byte
+`0xE7` query containing readiness, Start attempt, slot types, and character
+selections; Dolphin responds with one byte. This traffic is never recorded or
+forwarded. The CSS-load hook sends a reset so stage-select admission cannot be
+reused on a new visit. Online/other scenes are untouched. Unsupported local
+rosters fail closed; this host currently funds only two humans on P1/P2.
+
+The emulation thread only exchanges bounded state with the GUI. The Rust worker
+checks the wallet, reserves funds, consumes admission, and settles results.
+An acknowledged Playing phase for the current selection is required before
+the GUI grants the hook. The emulator is not paused while payment is pending.
+
+QR encoding uses Project Nayuki's MIT-licensed C++ QR Code generator under
+`Source/Core/DolphinWX/QR/`. The source files retain the license notice.
+
+Fake data lives under `<Dolphin user>/SatsArenaFake/`.
+`SATS_ARENA_FAKE_DATA_DIR` selects an isolated test ledger. The host accepts no
+NWC credentials and never makes real Lightning payments.
+`SATS_ARENA_FAKE_LOCAL=0 make app` explicitly disables the payment gate for
+ungated diagnostic play.
+
+## Live verification
+
+See `docs/evidence/css-payment-gate/`:
+
+- `01-unpaid-start-blocked.png`: two QR codes, Start queued, no payments.
+- `02-one-payment-blocked.png`: P1 reserved, P2 unpaid, CSS still blocked.
+- `03-funded-stage-select.png`: second payment released queued Start.
+- `04-funded-match-hit.png`: Dr. Mario hit Luigi; 8% damage and credit event.
+- `05-match-settled.png`: normal Game end, P1 winner inferred automatically.
+- `06-next-match-payment.png`: same running emulator, next CSS gate, P2 shortfall QR.
+- `07-stage-back-requires-new-start.png`: backing out of stage select resolves
+  the abandoned admission, keeps both budgets funded, and waits for a new Start.
+
+The QR contents were independently decoded from screenshots and matched the
+fake invoices (500 sats each initially; 100 sats shortfall for the next match).
+The fake ledger recorded exactly one 100-sat winner transfer and a new funding
+lobby. No manual result was submitted.

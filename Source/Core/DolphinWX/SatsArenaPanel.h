@@ -26,7 +26,7 @@ private:
 	void UpdateLog(bool force = false);
 	wxTextCtrl* m_log = nullptr;
 #ifdef SATS_ARENA_LOCAL
-	wxButton* m_funding = nullptr;
+	wxWindow* m_funding = nullptr;
 #endif
 	wxTimer m_timer;
 	SatsArena::Snapshot m_snapshot;

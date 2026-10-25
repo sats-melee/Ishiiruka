@@ -1,0 +1,11 @@
+{
+  "normal_games_settled": 2,
+  "abandoned_stage_select_no_contest": 1,
+  "winner_transfers_sats": [
+    100,
+    100
+  ],
+  "no_contest_transfers_sats": [],
+  "next_lobby_phase": "funding",
+  "real_payments": false
+}
