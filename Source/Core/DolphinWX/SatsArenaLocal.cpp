@@ -23,7 +23,7 @@
 #include "Core/Slippi/SatsArenaTracker.h"
 #include "DolphinWX/QR/qrcodegen.hpp"
 #include "sats_arena_local.h"
-static_assert(sizeof(ArenaLocalView) == 14464, "Arena local ABI layout mismatch");
+static_assert(sizeof(ArenaLocalView) == 14504, "Arena local ABI layout mismatch");
 
 namespace SatsArenaLocal
 {
@@ -134,6 +134,9 @@ public:
         rate_rule->Add(m_rate_rule, 0, wxEXPAND);
         rules->Add(rate_rule, 1);
         root->Add(rules, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
+        m_invoice_rule = Label(this, "", 9, MUTED);
+        m_invoice_rule->SetToolTip("The routing contribution is added to the invoice and retained by the host wallet for fees, including after cancellation. It is separate from the playable pot.");
+        root->Add(m_invoice_rule, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
         m_wallet_mode = Label(this, "", 8, ACCENT);
         root->Add(m_wallet_mode, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
         m_wallet_mode->Hide();
@@ -219,7 +222,7 @@ public:
             root->Add(row, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
         }
         m_verification_note = Label(this, "* Receiving addresses checked automatically", 8, ACCENT);
-        m_verification_note->SetToolTip("Receiving checks run before each match. Verification does not send any funds.");
+        m_verification_note->SetToolTip("Successful receiving checks are reused for 30 minutes. Changed addresses, expired checks, or incompatible limits are checked again. Verification does not send funds.");
         root->Add(m_verification_note, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
         m_error = Label(this, "", 9, ACCENT);
         root->Add(m_error, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
@@ -235,9 +238,8 @@ public:
         log_layout->Add(m_log, 1, wxALL | wxEXPAND, 8);
         log_area->SetSizer(log_layout);
         root->Add(log_area, 1, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
-        auto* help = Label(this, "Damage pays in 5-second batches.\nThe remaining pot settles after the match.", 8, MUTED);
-        help->Wrap(CONTENT_WIDTH);
-        root->Add(help, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
+        m_help = Label(this, "", 8, MUTED);
+        root->Add(m_help, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
         SetSizer(root);
         Bind(wxEVT_TIMER, [this](wxTimerEvent&) { Poll(); });
         m_timer.Start(100);
@@ -271,7 +273,7 @@ private:
 		if (!m_enabled) { m_phase->SetLabel("Payment gate disabled"); return; }
 		ArenaLocalView view = {};
 		if (!m_handle || !arena_local_snapshot(m_handle, &view)) return;
-		if (view.abi_version != 6) { m_error->SetLabel("Payment engine ABI mismatch"); return; }
+		if (view.abi_version != 7) { m_error->SetLabel("Payment engine ABI mismatch"); return; }
 		if (!m_addresses_loaded && view.phase != 0)
 		{
 			for (int i = 0; i < 4; ++i) m_address[i]->ChangeValue(wxString::FromUTF8(view.addresses[i]));
@@ -287,7 +289,6 @@ private:
 				m_address[i]->ChangeValue(wxString::FromUTF8(view.addresses[i]));
 			}
 			if (!view.error[0] && view.verification_state[i] == 2) {
-				m_checked_invoice[i] = wxString::FromUTF8(view.invoices[i]);
 				m_auto_failure[i].clear();
 			} else {
 				m_auto_failure[i] = wxString::FromUTF8(view.error[0] ? view.error : view.verification_message[i]);
@@ -304,11 +305,11 @@ private:
 			for (int i = 0; i < 4; ++i) {
 				if (view.kinds[i] != 0) continue;
 				const wxString input = m_address[i]->GetValue();
-				const wxString invoice = wxString::FromUTF8(view.invoices[i]);
-				const wxString key = invoice + "|" + input;
+				const auto humans = std::count(std::begin(view.kinds), std::end(view.kinds), 0u);
+				const wxString key = input + wxString::Format("|%llu|%u", static_cast<unsigned long long>(view.entry_sats), static_cast<unsigned>(humans));
 				if (view.verification_state[i] == 4 && now - m_auto_started[i] > std::chrono::minutes(9))
 					m_auto_attempted[i].clear();
-				const bool current = !m_addresses_dirty[i] && view.verification_state[i] == 2 && m_checked_invoice[i] == invoice;
+				const bool current = !m_addresses_dirty[i] && view.verification_state[i] == 2;
 				if (current || input.empty() || key == m_auto_attempted[i] || now - m_edited_at[i] < std::chrono::milliseconds(750)) continue;
 				if (arena_local_verify_address(m_handle, i, input.utf8_str().data())) {
 					m_auto_attempted[i] = key;
@@ -323,7 +324,7 @@ private:
 		bool any_paid = false;
 		for (int i = 0; i < 4; ++i)
 		{
-			if (view.kinds[i] == 0 && (m_addresses_dirty[i] || view.verification_state[i] != 2 || m_checked_invoice[i] != wxString::FromUTF8(view.invoices[i]))) addresses_saved = false;
+			if (view.kinds[i] == 0 && (m_addresses_dirty[i] || view.verification_state[i] != 2)) addresses_saved = false;
 			any_paid = any_paid || view.paid_sats[i] != 0;
 		}
 		if (m_credit_pending && !view.busy)
@@ -440,9 +441,14 @@ private:
         m_entry_rule->SetToolTip(entry_rule + " per human player");
         m_rate_rule->SetLabel(rate_rule);
         m_rate_rule->SetToolTip(rate_rule);
+        m_invoice_rule->SetLabel(wxString::Format("Invoice: %llu sats • %llu pot + %llu fees", static_cast<unsigned long long>(view.invoice_sats), static_cast<unsigned long long>(view.entry_sats), static_cast<unsigned long long>(view.surcharge_sats)));
+        m_invoice_rule->Wrap(CONTENT_WIDTH);
+        m_invoice_rule->Show(view.phase != 0);
         m_wallet_mode->SetLabel(view.sandbox ? "SANDBOX • test payments" : "FAKE WALLET • simulated payments");
         m_wallet_mode->SetToolTip("Development wallet: no real bitcoin is transferred.");
         m_wallet_mode->Show(view.phase != 0 && (view.sandbox || view.simulated));
+        m_help->SetLabel(wxString::Format("Damage pays in %llu-second batches.\nThe remaining pot settles after the match.", static_cast<unsigned long long>(view.batch_window_ms / 1000)));
+        m_help->Wrap(CONTENT_WIDTH);
         m_verification_note->Show(funding);
         for (int i = 0; i < 4; ++i)
         {
@@ -464,7 +470,7 @@ private:
             m_player[i]->SetLabel(label);
             m_entry_status[i]->SetLabel(!human ? "NO ENTRY" : (paid ? "PAID" : "UNPAID"));
             m_entry_status[i]->SetForegroundColour(!human ? MUTED : (paid ? GREEN : ACCENT));
-            m_entry_status[i]->SetToolTip(human ? wxString::Format("%s: %llu sats", paid ? "Entry received" : "Entry to pay", static_cast<unsigned long long>(view.entry_sats)) : "CPU players do not pay or receive payouts");
+            m_entry_status[i]->SetToolTip(human ? wxString::Format("%s: %llu sats", paid ? "Entry received" : "Entry to pay", static_cast<unsigned long long>(view.invoice_sats)) : "CPU players do not pay or receive payouts");
             m_address[i]->Show(human);
             m_verify[i]->Show(human && funding && !m_auto_failure[i].empty());
             m_address[i]->Enable(human && funding && !any_paid && m_address_pending != i && !view.sandbox);
@@ -475,13 +481,13 @@ private:
             if (!human) verification = "CPU • no payments";
             else if (m_address_pending == i) verification = "Checking receiver...";
             else if (!m_auto_failure[i].empty()) { verification = m_auto_failure[i]; colour = ACCENT; }
-            else if (status == 2 && m_checked_invoice[i] == wxString::FromUTF8(view.invoices[i])) { verification = "Verified *"; colour = GREEN; }
+            else if (status == 2) { verification = "Verified *"; colour = GREEN; }
             else if (status == 3 || status == 5) { verification = wxString::FromUTF8(view.verification_message[i]); colour = ACCENT; }
             else verification = m_address[i]->GetValue().empty() ? "Enter a Lightning address" : "Waiting for automatic check...";
             m_verification[i]->SetLabel(verification);
             m_verification[i]->Wrap(CONTENT_WIDTH);
             m_verification[i]->SetForegroundColour(colour);
-            m_verification[i]->SetToolTip(status == 2 ? "Receiving address verified automatically. No funds sent for verification." : wxString::FromUTF8(view.verification_message[i]));
+            m_verification[i]->SetToolTip(status == 2 ? "Receiving address verified automatically; reused for up to 30 minutes. No funds sent for verification." : wxString::FromUTF8(view.verification_message[i]));
             const bool show = human && css.ready && roster_matches && addresses_saved && !m_admitted && funding;
             const wxString invoice = show && !paid && view.invoices[i][0] ? wxString::FromUTF8(view.invoices[i]) : "";
             const bool has_qr = !invoice.empty();
@@ -531,9 +537,11 @@ private:
 	std::uint64_t m_lobby_generation = 0;
 	bool m_capture_failed = false;
 	bool m_credit_pending = false;
+	wxStaticText* m_invoice_rule = nullptr;
 	wxStaticText* m_entry_rule = nullptr;
 	wxStaticText* m_rate_rule = nullptr;
 	wxStaticText* m_wallet_mode = nullptr;
+	wxStaticText* m_help = nullptr;
 	wxStaticText* m_phase = nullptr;
 	wxStaticText* m_error = nullptr;
 	wxPanel* m_rows[4] = {};
@@ -555,7 +563,7 @@ private:
 	wxStaticText* m_address_warning = nullptr;
 	bool m_addresses_loaded = false, m_addresses_dirty[4] = {};
 	int m_address_pending = -1;
-	wxString m_checked_invoice[4], m_auto_attempted[4], m_auto_failure[4];
+	wxString m_auto_attempted[4], m_auto_failure[4];
 	std::chrono::steady_clock::time_point m_edited_at[4] = {}, m_auto_started[4] = {};
 	wxTextCtrl* m_log = nullptr;
 	wxButton* m_pay[4] = {};
