@@ -1,0 +1,18 @@
+{
+  "entries_sats": [
+    500,
+    500
+  ],
+  "live_damage_payout_sats": [
+    80,
+    0
+  ],
+  "remaining_pot_sats": 920,
+  "winner": "P2",
+  "final_paid_sats": [
+    80,
+    920
+  ],
+  "next_match_two_fresh_invoices": true,
+  "simulated": true
+}

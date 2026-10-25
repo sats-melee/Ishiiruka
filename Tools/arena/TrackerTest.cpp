@@ -295,6 +295,8 @@ void RecentCreditHistory()
 	const auto state = tracker.Read();
 	Check(state.total_credit_events == 450 && state.total_events == 450,
 	      "history eviction changed match totals");
+	Check(state.damage_centi[0] == 0 && state.damage_centi[1] == 45000,
+          "history eviction lost cumulative payment counters");
 	Check(state.credit_events.size() == SatsArena::MAX_CREDIT_MESSAGES,
 	      "visible credit history is not bounded to its message limit");
 	Check(state.credit_events.front().frame == 351 && state.credit_events.back().frame == 450,
@@ -304,6 +306,7 @@ void RecentCreditHistory()
 		      "unverified percent observation entered the visible log");
 	Feed(tracker, Start());
 	Check(tracker.Read().credit_events.empty(), "new match retained visible messages");
+    Check(tracker.Read().damage_centi[1] == 0, "new match retained payout damage");
 	Sample(tracker, 0, 0, 0);
 	Book(tracker, 0, 0);
 	Sample(tracker, 1, 0, 8);

@@ -52,6 +52,7 @@ void Tracker::Start(const std::uint8_t* data, std::size_t length)
 	m_snapshot.credit_events.clear();
 	m_snapshot.total_events = 0;
 	m_snapshot.total_credit_events = 0;
+	m_snapshot.damage_centi = {};
 	m_snapshot.credit_stream_seen = false;
 	m_snapshot.credit_stream_incomplete = false;
 	++m_snapshot.revision;
@@ -178,6 +179,9 @@ void Tracker::Publish(const DamageEvent& event)
 	if (event.kind == EventKind::GameCredit)
 	{
 		++m_snapshot.total_credit_events;
+        // Independent of the bounded visible history: UI polling cannot lose payouts.
+        m_snapshot.damage_centi[event.victim] +=
+            static_cast<std::uint64_t>(std::llround(double(event.amount) * 100.0));
 		m_snapshot.credit_events.push_back(event);
 		if (m_snapshot.credit_events.size() > MAX_CREDIT_MESSAGES)
 			m_snapshot.credit_events.pop_front();

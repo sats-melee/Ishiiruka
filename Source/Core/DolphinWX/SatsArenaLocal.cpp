@@ -17,7 +17,7 @@
 #include "Core/Slippi/SatsArenaTracker.h"
 #include "DolphinWX/QR/qrcodegen.hpp"
 #include "sats_arena_local.h"
-static_assert(sizeof(ArenaLocalView) == 576, "Arena local ABI layout mismatch");
+static_assert(sizeof(ArenaLocalView) == 616, "Arena local ABI layout mismatch");
 
 namespace SatsArenaLocal
 {
@@ -86,10 +86,10 @@ public:
 		m_phase = new wxStaticText(this, wxID_ANY, "Starting payment engine...");
 		m_phase->SetFont(wxFont(11, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
 		root->Add(m_phase, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
-		auto* notice = new wxStaticText(this, wxID_ANY,
-			"FAKE WALLET • test QR codes only\n500 sats budget each • 100 sats win bonus\nDamage billing off");
-		notice->Wrap(310);
-		root->Add(notice, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
+		m_rules = new wxStaticText(this, wxID_ANY,
+			"FAKE WALLET • simulated payments");
+		m_rules->Wrap(310);
+		root->Add(m_rules, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		for (int i = 0; i < 2; ++i)
 		{
 			auto* row = new wxBoxSizer(wxHORIZONTAL);
@@ -99,8 +99,8 @@ public:
 			auto* info = new wxBoxSizer(wxVERTICAL);
 			auto* player = new wxStaticText(this, wxID_ANY, wxString::Format("PLAYER %d", i + 1));
 			info->Add(player, 0, wxBOTTOM, 8);
-			m_balance[i] = new wxStaticText(this, wxID_ANY, "Waiting...");
-			info->Add(m_balance[i], 0, wxBOTTOM, 8);
+			m_payment[i] = new wxStaticText(this, wxID_ANY, "Waiting...");
+			info->Add(m_payment[i], 0, wxBOTTOM, 8);
 			m_pay[i] = new wxButton(this, wxID_ANY, "Simulate payment");
 			m_pay[i]->SetName(wxString::Format("Simulate Player %d payment", i + 1));
 			m_pay[i]->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent&) { Send(2 + i); });
@@ -122,7 +122,7 @@ public:
 		m_log->SetFont(wxFont(9, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 		root->Add(m_log, 1, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		auto* help = new wxStaticText(this, wxID_ANY,
-			"Choose two characters. Funding unlocks PRESS START.\nResults settle automatically; the next match stays in Melee.");
+			"Two fresh entry payments per match.\nEarn sats on hits; the winner gets the remaining pot.");
 		help->Wrap(310);
 		root->Add(help, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		SetSizer(root);
@@ -151,7 +151,7 @@ private:
 		ArenaLocalView view = {};
 		if (!m_handle || !arena_local_snapshot(m_handle, &view))
 			return;
-		if (view.abi_version != 1)
+		if (view.abi_version != 2)
 		{
 			m_error->SetLabel("Payment engine ABI mismatch");
 			return;
@@ -175,11 +175,29 @@ private:
 			(match.status == SatsArena::TrackingState::LocalMatch ||
 			 match.status == SatsArena::TrackingState::Finished))
 			m_in_match = true;
+		if (m_credit_pending && !view.busy)
+		{
+			m_credit_pending = false;
+			if (!view.error[0]) m_last_credits = m_pending_credits;
+		}
+		if (m_in_match && view.phase == 3 && !view.busy && !match.credit_stream_incomplete)
+		{
+			const std::array<std::uint64_t, 2> totals = {{match.damage_centi[0], match.damage_centi[1]}};
+			if (totals != m_last_credits)
+			{
+				if (arena_local_credit(m_handle, totals[0], totals[1]))
+				{
+					m_pending_credits = totals;
+					m_credit_pending = true;
+				}
+				return; // Flush the latest live payouts before submitting the game result.
+			}
+		}
 		if (!view.busy && view.phase == 3)
 		{
 			if (m_in_match && match.status == SatsArena::TrackingState::Finished)
 			{
-				const unsigned result = match.game_ended && match.winner_port >= 0 &&
+				const unsigned result = match.game_ended && !match.credit_stream_incomplete && match.winner_port >= 0 &&
 					match.winner_port <= 1 ? 6 + match.winner_port : 8;
 				if (Send(result)) { m_in_match = false; m_admitted = false; m_settling = true; }
 			}
@@ -195,37 +213,48 @@ private:
 				if (Send(8)) m_admitted = false;
 			}
 		}
-		else if (!view.busy && (view.phase == 4 || view.phase == 5))
+		else if (!view.busy && view.phase == 4 && css.ready)
 		{
 			m_settling = false;
-			Send(1); // Prepare the next match; unspent balances can fund its budget.
+			Send(1); // Two fresh invoices at the next PRESS START prompt.
 		}
 		else if (!view.busy && view.phase == 2 && css.ready && css.requested &&
 				 !m_start_pending && !view.error[0])
 		{
 			m_generation = css.generation;
 			m_match_number = match.match_number;
+			m_last_credits = {};
+			m_credit_pending = false;
 			m_start_pending = Send(4); // Single-use admission must be acknowledged before grant.
 		}
 
 		wxString phase;
 		if (view.phase == 0) phase = "Starting payment engine...";
-		else if (view.phase == 6 || view.phase == 7) phase = "Payment needs attention";
+		else if (view.phase == 7 || view.error[0]) phase = "Payment needs attention";
+		else if (view.phase == 6) phase = "Sending remaining match payouts...";
 		else if (m_in_match) phase = "Match in progress";
-		else if (m_admitted) phase = "Funded • choose a stage";
+		else if (m_admitted) phase = "Both paid • choose a stage";
 		else if (!css.ready && match.game_ended)
 			phase = match.winner_port >= 0 ? wxString::Format("Player %d wins • next match", match.winner_port + 1) : wxString("No contest • next match");
 		else if (!css.ready) phase = "Choose two characters (P1 / P2)";
-		else if (view.phase == 2) phase = css.requested ? "Confirming match admission..." : "Both funded • PRESS START";
+		else if (view.phase == 2) phase = css.requested ? "Confirming match admission..." : "Both paid • PRESS START";
 		else if (view.phase == 3 || view.phase == 4) phase = "Settling previous match...";
 		else phase = css.requested ? "Start queued • waiting for payment" : "PRESS START • waiting for payment";
 		m_phase->SetLabel(phase);
 		m_phase->Wrap(310);
+		m_rules->SetLabel(wxString::Format(
+			"FAKE WALLET • simulated payments\n%llu sats each match • %llu sats / 1%%\nWinner gets the remaining pot",
+			static_cast<unsigned long long>(view.entry_sats),
+			static_cast<unsigned long long>(view.sats_per_percent)));
+		m_rules->Wrap(310);
 		for (int i = 0; i < 2; ++i)
 		{
-			m_balance[i]->SetLabel(wxString::Format("%llu available\n%llu reserved",
-				static_cast<unsigned long long>(view.available_sats[i]),
-				static_cast<unsigned long long>(view.reserved_sats[i])));
+			m_payment[i]->SetLabel(wxString::Format(
+				"Entry: %s\nMatch funds: %llu sats\nEarned: %llu sats\nSending: %llu sats",
+				view.paid_sats[i] ? "PAID" : "Awaiting payment",
+				static_cast<unsigned long long>(view.remaining_sats[i]),
+				static_cast<unsigned long long>(view.earned_sats[i]),
+				static_cast<unsigned long long>(view.pending_sats[i])));
 			const bool show = css.ready && !m_admitted && (view.phase == 1 || view.phase == 2);
 			const wxString invoice = show && view.invoices[i][0] ? wxString::FromUTF8(view.invoices[i]) : "";
 			if (invoice != m_last_invoice[i])
@@ -233,10 +262,13 @@ private:
 				m_qr[i]->SetBitmap(InvoiceQR(invoice.utf8_str().data()));
 				m_last_invoice[i] = invoice;
 			}
-			m_qr[i]->Show(!invoice.empty());
-			m_invoice[i]->ChangeValue(!invoice.empty() ? invoice :
-				wxString(view.reserved_sats[i] ? "Budget confirmed" : "Waiting for character selection"));
-			m_pay[i]->Enable(show && view.phase == 1 && !view.busy && view.reserved_sats[i] == 0);
+			m_qr[i]->Show(!invoice.empty()); // Keep both current-match QR codes after payment.
+			const wxString invoice_label = !invoice.empty() ? invoice :
+				wxString(view.phase == 3 ? "Match in progress" : "Two new invoices at PRESS START");
+			if (m_invoice[i]->GetValue() != invoice_label)
+				m_invoice[i]->ChangeValue(invoice_label);
+			m_pay[i]->SetLabel(view.paid_sats[i] ? "Paid" : "Simulate payment");
+			m_pay[i]->Enable(show && view.phase == 1 && !view.busy && view.paid_sats[i] == 0);
 		}
 		m_error->SetLabel(wxString::FromUTF8(view.error));
 		m_error->Wrap(310);
@@ -244,7 +276,7 @@ private:
 		{
 			m_log_revision = match.revision;
 			wxString text;
-			if (match.credit_stream_incomplete) text += "Credit capture incomplete\n";
+			if (match.credit_stream_incomplete) text += "Credit capture incomplete • remaining funds will be returned\n";
 			for (const auto& event : match.credit_events)
 				text += wxString::Format("f%d  P%d -> P%d +%.1f\n", event.frame,
 					event.attacker + 1, event.victim + 1, event.amount);
@@ -262,9 +294,12 @@ private:
 	bool m_enabled = true, m_start_pending = false, m_admitted = false;
 	bool m_in_match = false, m_abandon = false, m_settling = false;
 	std::uint64_t m_generation = 0, m_match_number = 0, m_log_revision = ~std::uint64_t(0);
+	std::array<std::uint64_t, 2> m_last_credits = {}, m_pending_credits = {};
+	bool m_credit_pending = false;
+	wxStaticText* m_rules = nullptr;
 	wxStaticText* m_phase = nullptr;
 	wxStaticText* m_error = nullptr;
-	wxStaticText* m_balance[2] = {};
+	wxStaticText* m_payment[2] = {};
 	wxStaticBitmap* m_qr[2] = {};
 	wxTextCtrl* m_invoice[2] = {};
 	wxTextCtrl* m_log = nullptr;

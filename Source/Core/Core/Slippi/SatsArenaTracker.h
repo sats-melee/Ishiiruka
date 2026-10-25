@@ -47,6 +47,7 @@ struct Snapshot
 	std::deque<DamageEvent> events;
 	std::deque<DamageEvent> credit_events; // Credit-only history for the visible log.
 	std::uint64_t total_credit_events = 0;
+	std::array<std::uint64_t, 4> damage_centi = {}; // Cumulative finalized attributed credits received.
 	int winner_port = -1; // Derived only from a complete normal game-end packet.
 	bool game_ended = false;
 	bool credit_stream_seen = false;

@@ -9,8 +9,8 @@ state, or performs network or wallet operations.
 
 The standard Arena build now embeds the fake payment engine in this sidebar.
 Melee boots immediately, and the assembly hook gates the local CSS PRESS START
-transition on both budgets. Invoice QR codes, available/reserved balances and
-automatic match settlement are live against the fake ledger. Real Lightning
+transition on two fresh entry payments. Two invoice QR codes, live damage payouts and the winner’s remaining-pot
+payout are implemented against the fake wallet. Real Lightning
 payments are not connected. See [the match funding flow](LocalFundingPreview.md).
 
 A build without the adjacent local-engine crate retains the damage-only
@@ -23,8 +23,10 @@ sidebar shows only **finalized game-credit calls**, including frame, attacker,
 victim, follower flags, attack ID and nominal credited amount. Percent changes
 and stale last-hit hints are retained internally for diagnostics but are no
 longer displayed. Online, demos, and teams are deliberately excluded.
-Nothing changes the pots. Nominal game credit is not actual applied percent or
-financial authorization.
+In the prepaid match host, finalized attributed credits drive the advertised
+per-damage payouts. Nominal game credit can differ from applied percent; the
+configured rate explicitly prices credited damage. The diagnostic-only build
+without the host does not move funds.
 
 The observer replaces unfinalized rollback frames and publishes each finalized
 frame only once. Separate bounded histories keep the latest 200 observations and
