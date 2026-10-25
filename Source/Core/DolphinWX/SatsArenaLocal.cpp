@@ -23,7 +23,7 @@
 #include "Core/Slippi/SatsArenaTracker.h"
 #include "DolphinWX/QR/qrcodegen.hpp"
 #include "sats_arena_local.h"
-static_assert(sizeof(ArenaLocalView) == 14504, "Arena local ABI layout mismatch");
+static_assert(sizeof(ArenaLocalView) == 14760, "Arena local ABI layout mismatch");
 
 namespace SatsArenaLocal
 {
@@ -273,7 +273,7 @@ private:
 		if (!m_enabled) { m_phase->SetLabel("Payment gate disabled"); return; }
 		ArenaLocalView view = {};
 		if (!m_handle || !arena_local_snapshot(m_handle, &view)) return;
-		if (view.abi_version != 7) { m_error->SetLabel("Payment engine ABI mismatch"); return; }
+		if (view.abi_version != 8) { m_error->SetLabel("Payment engine ABI mismatch"); return; }
 		if (!m_addresses_loaded && view.phase != 0)
 		{
 			for (int i = 0; i < 4; ++i) m_address[i]->ChangeValue(wxString::FromUTF8(view.addresses[i]));
@@ -412,7 +412,7 @@ private:
         const bool show_css = !m_admitted && !m_in_match && (css.kinds[0] < 2 || css.kinds[1] < 2 || css.kinds[2] < 2 || css.kinds[3] < 2);
         wxString phase;
         if (view.phase == 0) phase = "Connecting wallet...";
-        else if (view.phase == 7 || view.error[0]) phase = "Payment needs attention";
+        else if (view.phase == 7 || view.error[0] || view.payment_error[0]) phase = "Payment needs attention";
         else if (view.phase == 6) phase = "Sending payouts...";
         else if (m_in_match) phase = "Match in progress";
         else if (m_admitted) phase = "Choose a stage";
@@ -422,7 +422,7 @@ private:
         else if (view.phase == 4) phase = "Match settled";
         else phase = "Awaiting entry payments";
         m_phase->SetLabel(phase);
-        m_phase->SetForegroundColour(view.error[0] || view.phase == 7 ? ACCENT : MUTED);
+        m_phase->SetForegroundColour(view.error[0] || view.payment_error[0] || view.phase == 7 ? ACCENT : MUTED);
         m_phase->Wrap(CONTENT_WIDTH);
         wxString warning;
         if (funding && !addresses_saved && css.ready) {
@@ -517,9 +517,9 @@ private:
             m_rows[i]->Layout();
         }
 
-		m_error->SetLabel(wxString::FromUTF8(view.error));
+		m_error->SetLabel(wxString::FromUTF8(view.error[0] ? view.error : view.payment_error));
 		m_error->Wrap(CONTENT_WIDTH);
-		m_error->Show(view.error[0] != 0);
+		m_error->Show(view.error[0] != 0 || view.payment_error[0] != 0);
 		wxString activity;
 		if ((m_admitted || m_in_match) && (m_capture_failed || match.credit_stream_incomplete)) activity = "Incomplete match data • unspent funds will be returned\n";
 		activity += wxString::FromUTF8(view.payment_log);
