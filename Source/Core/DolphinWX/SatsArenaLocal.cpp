@@ -87,6 +87,10 @@ public:
 		m_phase = new wxStaticText(this, wxID_ANY, "Starting payment engine...");
 		m_phase->SetFont(wxFont(11, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
 		root->Add(m_phase, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
+		m_address_warning = new wxStaticText(this, wxID_ANY, "Match blocked: verify both players' receiving addresses.");
+		m_address_warning->SetForegroundColour(wxColour(255, 110, 110));
+		m_address_warning->Wrap(310);
+		root->Add(m_address_warning, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		m_rules = new wxStaticText(this, wxID_ANY,
 			"Connecting wallet...");
 		m_rules->Wrap(310);
@@ -104,8 +108,17 @@ public:
 			m_address[i]->SetHint("name@wallet.com");
 			m_address[i]->SetMaxLength(127);
 			m_address[i]->SetName(wxString::Format("Player %d Lightning Address", i + 1));
-			m_address[i]->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { m_addresses_dirty = true; });
-			info->Add(m_address[i], 0, wxBOTTOM | wxEXPAND, 8);
+			m_address[i]->Bind(wxEVT_TEXT, [this, i](wxCommandEvent&) { m_addresses_dirty[i] = true; });
+			auto* address_row = new wxBoxSizer(wxHORIZONTAL);
+			address_row->Add(m_address[i], 1, wxRIGHT | wxALIGN_CENTER_VERTICAL, 6);
+			m_verify[i] = new wxButton(this, wxID_ANY, "Verify", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+			m_verify[i]->SetName(wxString::Format("Verify Player %d receiving address", i + 1));
+			m_verify[i]->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent&) {
+				if (m_handle && arena_local_verify_address(m_handle, i, m_address[i]->GetValue().utf8_str().data()))
+					m_address_pending = i;
+			});
+			address_row->Add(m_verify[i], 0);
+			info->Add(address_row, 0, wxBOTTOM | wxEXPAND, 8);
 			m_verification[i] = new wxStaticText(this, wxID_ANY, "Not verified");
 			m_verification[i]->SetFont(wxFont(8, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 			info->Add(m_verification[i], 0, wxBOTTOM | wxEXPAND, 6);
@@ -120,13 +133,6 @@ public:
 			root->Add(row, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 
 		}
-		m_save_addresses = new wxButton(this, wxID_ANY, "Verify receiving addresses");
-		m_save_addresses->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
-			if (!m_handle) return;
-			m_addresses_pending = arena_local_addresses(m_handle,
-				m_address[0]->GetValue().utf8_str().data(), m_address[1]->GetValue().utf8_str().data());
-		});
-		root->Add(m_save_addresses, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		m_verification_note = new wxStaticText(this, wxID_ANY, "Checks the receiver and an unpaid invoice. No funds are sent.");
 		m_verification_note->Wrap(310);
 		root->Add(m_verification_note, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
@@ -180,23 +186,27 @@ private:
 			for (int i = 0; i < 2; ++i) m_address[i]->ChangeValue(wxString::FromUTF8(view.addresses[i]));
 			m_addresses_loaded = true;
 		}
-		if (m_addresses_pending && !view.busy)
+		if (m_address_pending >= 0 && !view.busy)
 		{
-			m_addresses_pending = false;
+			const int i = m_address_pending;
+			m_address_pending = -1;
 			if (!view.error[0])
 			{
-				m_addresses_dirty = false;
-				for (int i = 0; i < 2; ++i) m_address[i]->ChangeValue(wxString::FromUTF8(view.addresses[i]));
+				m_addresses_dirty[i] = false;
+				m_address[i]->ChangeValue(wxString::FromUTF8(view.addresses[i]));
 			}
 		}
-		const bool addresses_saved = view.addresses[0][0] && view.addresses[1][0] &&
-			!m_addresses_dirty && !m_addresses_pending &&
-			view.verification_state[0] == 2 && view.verification_state[1] == 2;
+		const bool addresses_saved = !m_addresses_dirty[0] && !m_addresses_dirty[1] &&
+			m_address_pending < 0 && view.verification_state[0] == 2 && view.verification_state[1] == 2;
 		const bool addresses_editable = view.phase == 1 && !view.paid_sats[0] && !view.paid_sats[1];
-		for (auto* address : m_address) address->Enable(addresses_editable);
 		const bool can_verify = view.phase == 1 || view.phase == 2;
-		m_save_addresses->Enable(can_verify && !view.busy && !m_addresses_pending && !addresses_saved);
-		m_save_addresses->Show(can_verify);
+		for (int i = 0; i < 2; ++i)
+		{
+			m_address[i]->Enable(addresses_editable && !view.busy);
+			m_verify[i]->Enable(can_verify && !view.busy && m_address_pending < 0);
+			m_verify[i]->Show(can_verify);
+		}
+		m_address_warning->Show(can_verify && !addresses_saved);
 		m_verification_note->Show(can_verify);
 		auto& gate = SatsArena::GetPaymentGate();
 		const auto css = gate.Read();
@@ -261,7 +271,7 @@ private:
 			Send(1); // Two fresh invoices at the next PRESS START prompt.
 		}
 		else if (!view.busy && view.phase == 2 && css.ready && css.requested &&
-				 !m_start_pending && !view.error[0])
+				 !m_start_pending && addresses_saved && !view.error[0])
 		{
 			m_generation = css.generation;
 			m_match_number = match.match_number;
@@ -273,7 +283,7 @@ private:
 		wxString phase;
 		if (view.phase == 0) phase = "Starting payment engine...";
 		else if (view.phase == 7 || view.error[0]) phase = "Payment needs attention";
-		else if (m_addresses_pending) phase = "Verifying receiving addresses...";
+		else if (m_address_pending >= 0) phase = "Verifying receiving addresses...";
 		else if (!addresses_saved && (view.phase == 1 || view.phase == 2)) phase = "Verify both Lightning Addresses";
 		else if (view.phase == 6) phase = "Sending remaining match payouts...";
 		else if (m_in_match) phase = "Match in progress";
@@ -294,10 +304,10 @@ private:
 		m_rules->Wrap(310);
 		for (int i = 0; i < 2; ++i)
 		{
-			const unsigned status = m_addresses_dirty ? 0 : view.verification_state[i];
+			const unsigned status = m_addresses_dirty[i] ? 0 : view.verification_state[i];
 			wxString verification;
 			wxColour colour(150, 160, 172);
-			if (m_addresses_pending) verification = "Checking receiver...";
+			if (m_address_pending == i) verification = "Checking receiver...";
 			else if (status == 2)
 			{
 				verification = wxString::Format("Verified • %llu–%llu sats",
@@ -375,8 +385,10 @@ private:
 	wxStaticText* m_verification_note = nullptr;
 	wxStaticBitmap* m_qr[2] = {};
 	wxTextCtrl* m_address[2] = {};
-	wxButton* m_save_addresses = nullptr;
-	bool m_addresses_loaded = false, m_addresses_dirty = false, m_addresses_pending = false;
+	wxButton* m_verify[2] = {};
+	wxStaticText* m_address_warning = nullptr;
+	bool m_addresses_loaded = false, m_addresses_dirty[2] = {};
+	int m_address_pending = -1;
 	wxTextCtrl* m_log = nullptr;
 	wxButton* m_pay[2] = {};
 	wxString m_last_invoice[2];

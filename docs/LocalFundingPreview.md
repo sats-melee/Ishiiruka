@@ -4,7 +4,7 @@ Melee boots immediately with `make app`. At character select **PRESS START**,
 the sidebar shows **two new entry invoices and QR codes**, one per player.
 There is no launch-time funding dialog, reusable balance or Reserved label.
 
-Enter both players’ Lightning Addresses and click **Verify receiving addresses**
+Enter each player’s Lightning Address and click its adjacent **Verify** button
 before funding. The panel checks the live receiver and a signed unpaid test
 invoice, shows its limits, and requires rechecking after ten minutes. This
 sends no payment and does not prove address ownership or successful routing. These addresses
