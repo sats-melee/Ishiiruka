@@ -5,6 +5,7 @@
 
 #include <map>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 
 
@@ -31,6 +32,8 @@ namespace VertexLoaderManager
 {
 static VertexLoaderMap s_vertex_loader_map;
 static NativeVertexFormatMap s_native_vertex_map;
+// CPU preprocessing and the graphics thread share loaders and native formats.
+static std::mutex s_loader_mutex;
 static NativeVertexFormat* s_current_vtx_fmt;
 u32 g_current_components;
 // TODO - change into array of pointers. Keep a map of all seen so far.
@@ -165,6 +168,7 @@ static void DumpLoadersCode()
 
 void AppendListToString(std::string *dest)
 {
+	std::lock_guard<std::mutex> lock(s_loader_mutex);
 	std::vector<entry> entries;
 
 	size_t total_size = 0;
@@ -186,6 +190,10 @@ void AppendListToString(std::string *dest)
 
 void Init()
 {
+	std::lock_guard<std::mutex> lock(s_loader_mutex);
+	s_current_vtx_fmt = nullptr;
+	g_current_components = 0;
+	for (auto& loader : s_cpu_loaders) loader = nullptr;
 	MarkAllDirty();
 	for (VertexLoaderBase*& vertexLoader : g_main_cp_state.vertex_loaders)
 		vertexLoader = nullptr;
@@ -194,8 +202,11 @@ void Init()
 
 void Shutdown()
 {
+	std::lock_guard<std::mutex> lock(s_loader_mutex);
 	if (s_vertex_loader_map.size() > 0 && g_ActiveConfig.bDumpVertexLoaders)
 		DumpLoadersCode();
+	s_current_vtx_fmt = nullptr;
+	for (auto& loader : s_cpu_loaders) loader = nullptr;
 	s_vertex_loader_map.clear();
 	s_native_vertex_map.clear();
 }
@@ -241,18 +252,21 @@ void MarkAllDirty()
 
 inline VertexLoaderBase *GetOrAddLoader(const TVtxDesc &VtxDesc, const VAT &VtxAttr)
 {
+	std::lock_guard<std::mutex> lock(s_loader_mutex);
 	VertexLoaderUID uid(VtxDesc, VtxAttr);
 	VertexLoaderMap::iterator iter = s_vertex_loader_map.find(uid);
 	if (iter == s_vertex_loader_map.end())
 	{
-		s_vertex_loader_map[uid] = VertexLoaderBase::CreateVertexLoader(VtxDesc, VtxAttr);
-		VertexLoaderBase* loader = s_vertex_loader_map[uid].get();
+		auto owned_loader = VertexLoaderBase::CreateVertexLoader(VtxDesc, VtxAttr);
+		VertexLoaderBase* loader = owned_loader.get();
 		loader->m_native_vertex_format = GetNativeVertexFormat(loader->m_native_vtx_decl);
 		VertexLoaderBase * fallback = loader->GetFallback();
 		if (fallback)
 		{
 			fallback->m_native_vertex_format = GetNativeVertexFormat(fallback->m_native_vtx_decl);
 		}
+		// Publish only after both paths have complete native formats.
+		s_vertex_loader_map.emplace(uid, std::move(owned_loader));
 		INCSTAT(stats.numVertexLoaders);
 		return loader;
 	}
