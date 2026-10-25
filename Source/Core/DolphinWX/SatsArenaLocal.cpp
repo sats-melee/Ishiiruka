@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <chrono>
 #include <cmath>
 #include <vector>
 #include <wx/panel.h>
@@ -90,7 +91,7 @@ public:
 		m_phase = new wxStaticText(this, wxID_ANY, "Starting payment engine...");
 		m_phase->SetFont(wxFont(11, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
 		root->Add(m_phase, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
-		m_address_warning = new wxStaticText(this, wxID_ANY, "Match blocked: verify both players' receiving addresses.");
+		m_address_warning = new wxStaticText(this, wxID_ANY, "");
 		m_address_warning->SetForegroundColour(wxColour(255, 110, 110));
 		m_address_warning->Wrap(310);
 		root->Add(m_address_warning, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
@@ -115,14 +116,18 @@ public:
 			m_address[i]->SetMaxLength(127);
 			m_address[i]->SetMinSize(wxSize(80, -1));
 			m_address[i]->SetName(wxString::Format("Player %d Lightning Address", i + 1));
-			m_address[i]->Bind(wxEVT_TEXT, [this, i](wxCommandEvent&) { m_addresses_dirty[i] = true; });
+			m_address[i]->Bind(wxEVT_TEXT, [this, i](wxCommandEvent&) {
+				m_addresses_dirty[i] = true;
+				m_edited_at[i] = std::chrono::steady_clock::now();
+				m_auto_failure[i].clear();
+			});
 			auto* address_row = new wxBoxSizer(wxHORIZONTAL);
 			address_row->Add(m_address[i], 1, wxRIGHT | wxALIGN_CENTER_VERTICAL, 6);
-			m_verify[i] = new wxButton(card, wxID_ANY, "Verify", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
-			m_verify[i]->SetName(wxString::Format("Verify Player %d receiving address", i + 1));
+			m_verify[i] = new wxButton(card, wxID_ANY, "Retry", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+			m_verify[i]->SetName(wxString::Format("Retry Player %d receiving address", i + 1));
 			m_verify[i]->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent&) {
-				if (m_handle && arena_local_verify_address(m_handle, i, m_address[i]->GetValue().utf8_str().data()))
-					m_address_pending = i;
+				m_auto_attempted[i].clear();
+				m_auto_failure[i].clear();
 			});
 			address_row->Add(m_verify[i], 0);
 			info->Add(address_row, 0, wxBOTTOM | wxEXPAND, 6);
@@ -146,7 +151,7 @@ public:
 			card->SetSizer(info);
 			root->Add(card, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		}
-		m_verification_note = new wxStaticText(this, wxID_ANY, "Checks the receiver and an unpaid invoice. No funds are sent.");
+		m_verification_note = new wxStaticText(this, wxID_ANY, "Receiving addresses are checked automatically before each match. No funds are sent.");
 		m_verification_note->Wrap(310);
 		root->Add(m_verification_note, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		m_error = new wxStaticText(this, wxID_ANY, "");
@@ -210,16 +215,44 @@ private:
 				m_addresses_dirty[i] = false;
 				m_address[i]->ChangeValue(wxString::FromUTF8(view.addresses[i]));
 			}
+			if (!view.error[0] && view.verification_state[i] == 2) {
+				m_checked_invoice[i] = wxString::FromUTF8(view.invoices[i]);
+				m_auto_failure[i].clear();
+			} else {
+				m_auto_failure[i] = wxString::FromUTF8(view.error[0] ? view.error : view.verification_message[i]);
+				if (m_auto_failure[i].empty()) m_auto_failure[i] = "Receiving address could not be verified";
+			}
 		}
 		auto& gate = SatsArena::GetPaymentGate();
 		const auto css = gate.Read();
 		const auto match = SatsArena::GetTracker().Read();
 		const bool roster_matches = SameRoster(view, css);
+		const bool funding = view.phase == 1 || view.phase == 2;
+		const auto now = std::chrono::steady_clock::now();
+		if (funding && css.ready && roster_matches && !view.busy && m_address_pending < 0 && !m_start_pending) {
+			for (int i = 0; i < 4; ++i) {
+				if (view.kinds[i] != 0) continue;
+				const wxString input = m_address[i]->GetValue();
+				const wxString invoice = wxString::FromUTF8(view.invoices[i]);
+				const wxString key = invoice + "|" + input;
+				if (view.verification_state[i] == 4 && now - m_auto_started[i] > std::chrono::minutes(9))
+					m_auto_attempted[i].clear();
+				const bool current = !m_addresses_dirty[i] && view.verification_state[i] == 2 && m_checked_invoice[i] == invoice;
+				if (current || input.empty() || key == m_auto_attempted[i] || now - m_edited_at[i] < std::chrono::milliseconds(750)) continue;
+				if (arena_local_verify_address(m_handle, i, input.utf8_str().data())) {
+					m_auto_attempted[i] = key;
+					m_auto_started[i] = now;
+					m_auto_failure[i].clear();
+					m_address_pending = i;
+				}
+				break;
+			}
+		}
 		bool addresses_saved = m_address_pending < 0;
 		bool any_paid = false;
 		for (int i = 0; i < 4; ++i)
 		{
-			if (view.kinds[i] == 0 && (m_addresses_dirty[i] || view.verification_state[i] != 2)) addresses_saved = false;
+			if (view.kinds[i] == 0 && (m_addresses_dirty[i] || view.verification_state[i] != 2 || m_checked_invoice[i] != wxString::FromUTF8(view.invoices[i]))) addresses_saved = false;
 			any_paid = any_paid || view.paid_sats[i] != 0;
 		}
 		if (m_credit_pending && !view.busy)
@@ -304,7 +337,6 @@ private:
 			}
 			else if (roster_matches) m_lobby_generation = css.generation;
 		}
-		const bool funding = view.phase == 1 || view.phase == 2;
 		const bool show_css = !m_admitted && !m_in_match && (css.kinds[0] < 2 || css.kinds[1] < 2 || css.kinds[2] < 2 || css.kinds[3] < 2);
 		wxString roster = (show_css ? css.teams : bool(view.teams)) ? "TEAM BATTLE" : "FREE-FOR-ALL";
 		m_roster->SetLabel(roster);
@@ -316,7 +348,7 @@ private:
 		else if (m_admitted) phase = "Entries paid • choose a stage";
 		else if (funding && (!css.roster_valid || !roster_matches)) phase = "Choose 2–4 players and opposing sides";
 		else if (m_address_pending >= 0) phase = "Verifying receiving address...";
-		else if (funding && !addresses_saved) phase = "Verify each human's address";
+		else if (funding && !addresses_saved) phase = "Checking receiving addresses...";
 		else if (view.phase == 2) phase = css.requested ? "Confirming match admission..." : "Entries paid • PRESS START";
 		else if (view.phase == 4) phase = "Match settled • next match";
 		else phase = css.requested ? "Start queued • waiting for entries" : "PRESS START • waiting for entries";
@@ -324,7 +356,13 @@ private:
 		m_phase->Wrap(310);
 		wxString warning;
 		if (funding && (!css.roster_valid || !roster_matches)) warning = "Match blocked: finish selecting opposing players.";
-		else if (funding && !addresses_saved) warning = "Match blocked: verify every human's receiving address.";
+		else if (funding && !addresses_saved && css.ready) {
+			for (int i = 0; i < 4; ++i) {
+				if (view.kinds[i] != 0) continue;
+				if (!m_auto_failure[i].empty()) { warning = wxString::Format("Player %d: %s", i + 1, m_auto_failure[i]); break; }
+				if (m_address[i]->GetValue().empty()) { warning = wxString::Format("Player %d: enter a Lightning address.", i + 1); break; }
+			}
+		}
 		else if (view.phase == 1) warning = "Match blocked: every human must pay their entry.";
 		m_address_warning->SetLabel(warning);
 		m_address_warning->Wrap(310);
@@ -345,15 +383,16 @@ private:
 			if (teams && team < 3) label += wxString::Format(" • %s Team", TeamName(team));
 			m_player[i]->SetLabel(label);
 			m_address[i]->Show(human);
-			m_verify[i]->Show(human && funding);
-			m_address[i]->Enable(human && funding && !any_paid && !view.busy);
+			m_verify[i]->Show(human && funding && !m_auto_failure[i].empty());
+			m_address[i]->Enable(human && funding && !any_paid && m_address_pending != i);
 			m_verify[i]->Enable(funding && roster_matches && !view.busy && m_address_pending < 0);
 			const unsigned status = m_addresses_dirty[i] ? 0 : view.verification_state[i];
 			wxString verification;
 			wxColour colour(150, 160, 172);
 			if (!human) verification = "No address or entry required";
 			else if (m_address_pending == i) verification = "Checking receiver...";
-			else if (status == 2)
+			else if (!m_auto_failure[i].empty()) { verification = m_auto_failure[i]; colour = wxColour(255, 160, 135); }
+			else if (status == 2 && m_checked_invoice[i] == wxString::FromUTF8(view.invoices[i]))
 			{
 				verification = wxString::Format("Verified • %llu–%llu sats",
 					static_cast<unsigned long long>((view.min_sendable_msat[i] + 999) / 1000),
@@ -361,8 +400,7 @@ private:
 				colour = wxColour(160, 230, 150);
 			}
 			else if (status == 3 || status == 5) { verification = wxString::FromUTF8(view.verification_message[i]); colour = wxColour(255, 160, 135); }
-			else if (status == 4) verification = "Verification expired • verify again";
-			else verification = "Not verified";
+			else verification = m_address[i]->GetValue().empty() ? "Enter a Lightning address" : "Waiting for automatic check...";
 			m_verification[i]->SetLabel(verification);
 			m_verification[i]->Wrap(290);
 			m_verification[i]->SetForegroundColour(colour);
@@ -413,6 +451,8 @@ private:
 	wxStaticText* m_address_warning = nullptr;
 	bool m_addresses_loaded = false, m_addresses_dirty[4] = {};
 	int m_address_pending = -1;
+	wxString m_checked_invoice[4], m_auto_attempted[4], m_auto_failure[4];
+	std::chrono::steady_clock::time_point m_edited_at[4] = {}, m_auto_started[4] = {};
 	wxTextCtrl* m_log = nullptr;
 	wxButton* m_pay[4] = {};
 	wxString m_last_invoice[4];

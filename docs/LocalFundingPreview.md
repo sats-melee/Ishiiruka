@@ -5,9 +5,11 @@ slots, in FFA or teams, and scrolls to show every player's card. Team labels use
 Melee's actual Red, Blue and Green assignments. Closed slots are hidden. CPUs
 show **No address or entry required** and never fund or receive payments.
 
-Each human enters a Lightning Address and uses its adjacent **Verify** button.
+Each human enters a Lightning Address. The panel checks it automatically at
+PRESS START after typing pauses; no Verify click is required. An optional Retry
+button appears only if a check fails.
 The background worker checks the live receiving endpoint and a signed unpaid
-invoice, shows receiving limits, and requires refreshing after ten minutes.
+invoice, shows receiving limits, and refreshes automatically before each match or when a check expires.
 This sends no payment and does not prove ownership or routing. Once every human
 is verified, each has a fresh entry invoice/QR. A paid QR remains visible with
 **PAID** beside it. Start stays blocked with red text until every human is
@@ -17,7 +19,7 @@ entries before issuing fresh invoices, and revokes earlier Start authorization.
 
 ## Payments
 
-Defaults: **500 sats per human entry**, **10 sats per 1% credited damage**.
+Defaults: **500 sats per human entry**, **1 sat per 1% credited damage**.
 Configure with `SATS_ARENA_ENTRY_SATS` and `SATS_ARENA_SATS_PER_PERCENT`.
 
 Opponent damage steals from that victim's remaining contribution. Whole sats
@@ -33,8 +35,9 @@ whole sats go in player-port order.
 
 On no contest, interruption, incomplete match data, or a CPU-only winning side,
 keep accrued damage earnings and return unspent contributions to their owners.
-The log names the winning team and shows confirmed amount, player, destination
-and UTC time. Simulated receipts explicitly say **SIMULATED**. Winnings never
+The log is one timestamped timeline from oldest to newest, with the latest
+entry at the bottom. Invoice confirmations say **Player 1 Invoice Paid**.
+Payouts name the receiving player/address and the winning team. Simulated receipts explicitly say **SIMULATED**. Winnings never
 replace the next match's entry.
 
 The full rules are in [FourPlayerRules.md](FourPlayerRules.md) and the shared

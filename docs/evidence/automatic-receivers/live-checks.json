@@ -1,0 +1,110 @@
+{
+  "tested_on": "2026-10-25",
+  "simulated": true,
+  "rate_sats_per_percent": 1,
+  "automatic_checks_without_clicks": 4,
+  "invalid_address_blocked_start": true,
+  "damage_received_centi": [
+    600,
+    2328,
+    0,
+    0
+  ],
+  "damage_payouts": [
+    23,
+    6,
+    0,
+    0
+  ],
+  "final_payouts": [
+    517,
+    483,
+    500,
+    500
+  ],
+  "total_contributed_sats": 2000,
+  "timeline": [
+    {
+      "at_ms": 1792944743254,
+      "message": "Player 1 Invoice Paid \u2014 500 sats"
+    },
+    {
+      "at_ms": 1792944743700,
+      "message": "Player 2 Invoice Paid \u2014 500 sats"
+    },
+    {
+      "at_ms": 1792944744165,
+      "message": "Player 3 Invoice Paid \u2014 500 sats"
+    },
+    {
+      "at_ms": 1792944744610,
+      "message": "Player 4 Invoice Paid \u2014 500 sats"
+    },
+    {
+      "at_ms": 1792944753564,
+      "message": "No contest \u2022 unspent entries returned"
+    },
+    {
+      "at_ms": 1792944753582,
+      "message": "SIMULATED Player 1 received 500 sats \u2022 settlement \u2192 nic@landaverde.io"
+    },
+    {
+      "at_ms": 1792944753587,
+      "message": "SIMULATED Player 2 received 500 sats \u2022 settlement \u2192 moldyshelf891@walletofsatoshi.com"
+    },
+    {
+      "at_ms": 1792944753592,
+      "message": "SIMULATED Player 3 received 500 sats \u2022 settlement \u2192 nic@landaverde.io"
+    },
+    {
+      "at_ms": 1792944753597,
+      "message": "SIMULATED Player 4 received 500 sats \u2022 settlement \u2192 moldyshelf891@walletofsatoshi.com"
+    },
+    {
+      "at_ms": 1792944822547,
+      "message": "Player 1 Invoice Paid \u2014 500 sats"
+    },
+    {
+      "at_ms": 1792944823000,
+      "message": "Player 2 Invoice Paid \u2014 500 sats"
+    },
+    {
+      "at_ms": 1792944823467,
+      "message": "Player 3 Invoice Paid \u2014 500 sats"
+    },
+    {
+      "at_ms": 1792944823913,
+      "message": "Player 4 Invoice Paid \u2014 500 sats"
+    },
+    {
+      "at_ms": 1792944874022,
+      "message": "SIMULATED Player 1 received 23 sats \u2022 damage \u2192 nic@landaverde.io"
+    },
+    {
+      "at_ms": 1792944876933,
+      "message": "SIMULATED Player 2 received 6 sats \u2022 damage \u2192 moldyshelf891@walletofsatoshi.com"
+    },
+    {
+      "at_ms": 1792944934023,
+      "message": "No contest \u2022 unspent entries returned"
+    },
+    {
+      "at_ms": 1792944934029,
+      "message": "SIMULATED Player 1 received 494 sats \u2022 settlement \u2192 nic@landaverde.io"
+    },
+    {
+      "at_ms": 1792944934034,
+      "message": "SIMULATED Player 2 received 477 sats \u2022 settlement \u2192 moldyshelf891@walletofsatoshi.com"
+    },
+    {
+      "at_ms": 1792944934039,
+      "message": "SIMULATED Player 3 received 500 sats \u2022 settlement \u2192 nic@landaverde.io"
+    },
+    {
+      "at_ms": 1792944934044,
+      "message": "SIMULATED Player 4 received 500 sats \u2022 settlement \u2192 moldyshelf891@walletofsatoshi.com"
+    }
+  ],
+  "next_match_checks_refreshed": true,
+  "next_match_unpaid": true
+}
