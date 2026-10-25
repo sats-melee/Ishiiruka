@@ -18,7 +18,7 @@
 #include "Core/Slippi/SatsArenaTracker.h"
 #include "DolphinWX/QR/qrcodegen.hpp"
 #include "sats_arena_local.h"
-static_assert(sizeof(ArenaLocalView) == 8824, "Arena local ABI layout mismatch");
+static_assert(sizeof(ArenaLocalView) == 9392, "Arena local ABI layout mismatch");
 
 namespace SatsArenaLocal
 {
@@ -106,6 +106,9 @@ public:
 			m_address[i]->SetName(wxString::Format("Player %d Lightning Address", i + 1));
 			m_address[i]->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { m_addresses_dirty = true; });
 			info->Add(m_address[i], 0, wxBOTTOM | wxEXPAND, 8);
+			m_verification[i] = new wxStaticText(this, wxID_ANY, "Not verified");
+			m_verification[i]->SetFont(wxFont(8, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
+			info->Add(m_verification[i], 0, wxBOTTOM | wxEXPAND, 6);
 			m_payment[i] = new wxStaticText(this, wxID_ANY, "Waiting...");
 			m_payment[i]->SetFont(wxFont(9, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 			info->Add(m_payment[i], 0, wxBOTTOM, 8);
@@ -117,13 +120,16 @@ public:
 			root->Add(row, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 
 		}
-		m_save_addresses = new wxButton(this, wxID_ANY, "Save payout addresses");
+		m_save_addresses = new wxButton(this, wxID_ANY, "Verify receiving addresses");
 		m_save_addresses->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
 			if (!m_handle) return;
 			m_addresses_pending = arena_local_addresses(m_handle,
 				m_address[0]->GetValue().utf8_str().data(), m_address[1]->GetValue().utf8_str().data());
 		});
 		root->Add(m_save_addresses, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
+		m_verification_note = new wxStaticText(this, wxID_ANY, "Checks the receiver and an unpaid invoice. No funds are sent.");
+		m_verification_note->Wrap(310);
+		root->Add(m_verification_note, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		m_error = new wxStaticText(this, wxID_ANY, "");
 		m_error->SetForegroundColour(wxColour(255, 160, 135));
 		root->Add(m_error, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
@@ -164,7 +170,7 @@ private:
 		ArenaLocalView view = {};
 		if (!m_handle || !arena_local_snapshot(m_handle, &view))
 			return;
-		if (view.abi_version != 3)
+		if (view.abi_version != 4)
 		{
 			m_error->SetLabel("Payment engine ABI mismatch");
 			return;
@@ -184,11 +190,14 @@ private:
 			}
 		}
 		const bool addresses_saved = view.addresses[0][0] && view.addresses[1][0] &&
-			!m_addresses_dirty && !m_addresses_pending;
+			!m_addresses_dirty && !m_addresses_pending &&
+			view.verification_state[0] == 2 && view.verification_state[1] == 2;
 		const bool addresses_editable = view.phase == 1 && !view.paid_sats[0] && !view.paid_sats[1];
 		for (auto* address : m_address) address->Enable(addresses_editable);
-		m_save_addresses->Enable(addresses_editable && !view.busy && m_addresses_dirty);
-		m_save_addresses->Show(addresses_editable);
+		const bool can_verify = view.phase == 1 || view.phase == 2;
+		m_save_addresses->Enable(can_verify && !view.busy && !m_addresses_pending && !addresses_saved);
+		m_save_addresses->Show(can_verify);
+		m_verification_note->Show(can_verify);
 		auto& gate = SatsArena::GetPaymentGate();
 		const auto css = gate.Read();
 		const auto match = SatsArena::GetTracker().Read();
@@ -264,7 +273,8 @@ private:
 		wxString phase;
 		if (view.phase == 0) phase = "Starting payment engine...";
 		else if (view.phase == 7 || view.error[0]) phase = "Payment needs attention";
-		else if (!addresses_saved && view.phase == 1) phase = "Enter both Lightning Addresses";
+		else if (m_addresses_pending) phase = "Verifying receiving addresses...";
+		else if (!addresses_saved && (view.phase == 1 || view.phase == 2)) phase = "Verify both Lightning Addresses";
 		else if (view.phase == 6) phase = "Sending remaining match payouts...";
 		else if (m_in_match) phase = "Match in progress";
 		else if (m_admitted) phase = "Both paid • choose a stage";
@@ -284,6 +294,28 @@ private:
 		m_rules->Wrap(310);
 		for (int i = 0; i < 2; ++i)
 		{
+			const unsigned status = m_addresses_dirty ? 0 : view.verification_state[i];
+			wxString verification;
+			wxColour colour(150, 160, 172);
+			if (m_addresses_pending) verification = "Checking receiver...";
+			else if (status == 2)
+			{
+				verification = wxString::Format("Verified • %llu–%llu sats",
+					static_cast<unsigned long long>((view.min_sendable_msat[i] + 999) / 1000),
+					static_cast<unsigned long long>(view.max_sendable_msat[i] / 1000));
+				colour = wxColour(160, 230, 150);
+			}
+			else if (status == 3 || status == 5)
+			{
+				verification = wxString::FromUTF8(view.verification_message[i]);
+				colour = wxColour(255, 160, 135);
+			}
+			else if (status == 4) verification = "Verification expired • verify again";
+			else verification = "Not verified";
+			m_verification[i]->SetLabel(verification);
+			m_verification[i]->Wrap(165);
+			m_verification[i]->SetForegroundColour(colour);
+			m_verification[i]->SetToolTip(wxString::FromUTF8(view.verification_message[i]));
 			m_payment[i]->SetLabel(wxString::Format(
 				"Entry: %s\nFunds left: %llu sats\nPaid out: %llu sats\nPending: %llu sats (%llus)",
 				view.paid_sats[i] ? "PAID" : "Awaiting payment",
@@ -339,6 +371,8 @@ private:
 	wxStaticText* m_phase = nullptr;
 	wxStaticText* m_error = nullptr;
 	wxStaticText* m_payment[2] = {};
+	wxStaticText* m_verification[2] = {};
+	wxStaticText* m_verification_note = nullptr;
 	wxStaticBitmap* m_qr[2] = {};
 	wxTextCtrl* m_address[2] = {};
 	wxButton* m_save_addresses = nullptr;

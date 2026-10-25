@@ -4,7 +4,10 @@ Melee boots immediately with `make app`. At character select **PRESS START**,
 the sidebar shows **two new entry invoices and QR codes**, one per player.
 There is no launch-time funding dialog, reusable balance or Reserved label.
 
-Enter and save both players’ Lightning Addresses before funding. These addresses
+Enter both players’ Lightning Addresses and click **Verify receiving addresses**
+before funding. The panel checks the live receiver and a signed unpaid test
+invoice, shows its limits, and requires rechecking after ten minutes. This
+sends no payment and does not prove address ownership or successful routing. These addresses
 are locked when the first entry payment is confirmed and retained for the next
 match. Both players pay the full entry amount every match. A paid QR stays visible
 with **PAID** beside it. Start is blocked until both current-match entries are
@@ -54,9 +57,8 @@ blindly resent. Completed games are archived before creating the next game.
 A pending/failed payout prevents silently starting a new pot.
 
 The host is **fake only**: QR invoices are not payable Lightning invoices,
-and outgoing payments go to explicitly simulated player destinations. Real
-micropayments still require a real wallet adapter and receiving destination
-for each player. Routing-fee handling is not part of the simulated pot.
+and outgoing payments go to explicitly simulated player destinations. Real micropayments still require a real wallet adapter. Receiving destinations
+now receive live network verification even while gameplay uses the fake wallet. Routing-fee handling is not part of the simulated pot.
 
 State is separate from the obsolete balance preview, at
 `<Dolphin user>/SatsArenaFake/prepaid-match.json`; settled games are in
@@ -84,3 +86,7 @@ The shared scheduler and wallet/provider contracts are documented in
 [`batched-payouts.md`](../../sats-arena/docs/batched-payouts.md).
 Live batching evidence is in `docs/evidence/batching/`; earlier
 `prepaid-match/` evidence predates the five-second timer.
+
+Live receiver checks and GUI evidence for the two user-provided addresses are in
+`docs/evidence/address-verification/`. The protocol details are in
+[`address-verification.md`](../../sats-arena/docs/address-verification.md).

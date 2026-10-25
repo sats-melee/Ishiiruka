@@ -1,0 +1,32 @@
+{
+  "reports": [
+    {
+      "address": "nic@landaverde.io",
+      "min_msat": 1000,
+      "max_msat": 10000000000,
+      "callback_host": "getalby.com",
+      "checked_at_ms": 1792902487947,
+      "test_invoice_msat": 1000,
+      "test_payment_hash": "cf42ac4454f954772e8a66ba116ffd6326390f12d2717ade93f8381ab9ac6850",
+      "invoice_expires_at_ms": 1792988887000,
+      "description_binding": "metadata_hash"
+    },
+    {
+      "address": "moldyshelf891@walletofsatoshi.com",
+      "min_msat": 1000,
+      "max_msat": 100000000000,
+      "callback_host": "livingroomofsatoshi.com",
+      "checked_at_ms": 1792902487926,
+      "test_invoice_msat": 1000,
+      "test_payment_hash": "acf4a50d398f42237fee66ca6d5f62749b7c6fe3e94a6a96ef5c3e298f4ff518",
+      "invoice_expires_at_ms": 1795494487000,
+      "description_binding": "signed_text_description"
+    }
+  ],
+  "real_payments_sent": 0,
+  "funding_wallet": "simulated",
+  "entry_payments": [
+    false,
+    false
+  ]
+}
