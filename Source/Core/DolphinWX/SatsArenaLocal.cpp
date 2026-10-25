@@ -39,7 +39,10 @@ struct Host
 			const char* override_path = std::getenv("SATS_ARENA_FAKE_DATA_DIR");
 			const std::string folder = override_path && *override_path ? override_path :
 				File::GetUserPath(D_USER_IDX) + "SatsArenaFake";
-			handle = arena_local_create(folder.c_str());
+            const char* live_override = std::getenv("SATS_ARENA_LIVE_DATA_DIR");
+            const std::string live_folder = live_override && *live_override ? live_override :
+                File::GetUserPath(D_USER_IDX) + "SatsArenaLive";
+            handle = arena_local_create_configured(folder.c_str(), live_folder.c_str());
 		}
 		return handle;
 	}
@@ -315,7 +318,7 @@ private:
 				m_capture_failed = false;
 				Send(1);
 			}
-			else if ((view.phase == 1 || view.phase == 2) && css.roster_valid && !roster_matches)
+			else if ((view.phase == 1 || view.phase == 2) && css.ready && !roster_matches)
 			{
 				std::array<std::uint32_t, 4> kinds, teams, characters;
 				for (int i = 0; i < 4; ++i) { kinds[i] = css.kinds[i]; teams[i] = css.team_ids[i]; characters[i] = css.characters[i]; }
@@ -368,7 +371,8 @@ private:
 		m_address_warning->Wrap(310);
 		m_address_warning->Show(!warning.empty());
 		m_rules->SetLabel(wxString::Format("%s\n%llu sats per human • %llu sats / 1%%\n5-second batches • winners split opponents' pots",
-			view.simulated ? "FAKE WALLET • simulated payments" : "LIGHTNING WALLET • live payments",
+			view.phase == 7 ? "WALLET UNAVAILABLE • payments blocked" :
+            (view.simulated ? "FAKE WALLET • simulated payments" : "LIGHTNING WALLET • live payments • wallet-managed fees"),
 			static_cast<unsigned long long>(view.entry_sats), static_cast<unsigned long long>(view.sats_per_percent)));
 		m_rules->Wrap(310);
 		m_verification_note->Show(funding);

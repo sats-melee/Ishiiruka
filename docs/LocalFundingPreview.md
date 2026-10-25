@@ -70,12 +70,21 @@ Recovered ambiguous outgoing payments are looked up, never blindly resent.
 Pending or failed returns block funding a replacement roster. Local state schema
 2 migrates to four slots, preserving old funds, IDs and fractional damage carry.
 
-The GUI wallet remains **simulated**; its QR invoices are not payable Lightning
-invoices. Address verification is live, and the receiving invoice resolver and
-wallet boundary remain independent of NWC. A real funding/payout wallet adapter
-still needs connecting. Fees are outside the match pots.
+The launcher selects **fake** or **NWC** execution. Saved credentials travel in
+one private stdin message; an explicit developer `SATS_ARENA_NWC_URI` can override
+them. Live mode uses mainnet invoices and actual wallet confirmations/payouts,
+hides simulation buttons, and labels wallet-managed routing fees. Missing or
+incompatible live configuration blocks payment rather than switching to fake.
+See [native NWC setup](../../sats-arena/docs/nwc-local-wallet.md).
 
-State: `<Dolphin user>/SatsArenaFake/prepaid-match.json`; completed/changed games
+Real invoices are created after receiving destinations are verified and remain
+bound to those destinations. Retired invoices stay monitored so a stale QR paid
+after a room change produces a durable return to its original recipient. Known
+pending returns block new admission. Fake and live state are separate; live
+state is additionally bound to public connection identity.
+
+State: `<Dolphin user>/SatsArenaFake/prepaid-match.json` in fake mode; live mode
+uses `SatsArenaLive/<connection fingerprint>/prepaid-match.json`. Completed/changed games
 archive under `SatsArenaFake/matches/`. `SATS_ARENA_FAKE_DATA_DIR` selects a test
 folder. `SATS_ARENA_FAKE_LOCAL=0` disables funding for diagnostic play.
 
