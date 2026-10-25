@@ -4,7 +4,9 @@ Melee boots immediately with `make app`. At character select **PRESS START**,
 the sidebar shows **two new entry invoices and QR codes**, one per player.
 There is no launch-time funding dialog, reusable balance or Reserved label.
 
-Both players pay the full entry amount every match. A paid QR stays visible
+Enter and save both players’ Lightning Addresses before funding. These addresses
+are locked when the first entry payment is confirmed and retained for the next
+match. Both players pay the full entry amount every match. A paid QR stays visible
 with **PAID** beside it. Start is blocked until both current-match entries are
 confirmed; a queued Start proceeds automatically after the second payment.
 
@@ -14,10 +16,12 @@ Defaults are **500 sats per entry** and **10 sats per 1% credited damage**.
 They can be configured with `SATS_ARENA_ENTRY_SATS` and
 `SATS_ARENA_SATS_PER_PERCENT`.
 
-- During play, finalized attributed hits pay the attacker out of the victim's
-  remaining match funds. A victim cannot spend more than their entry amount.
-- **Earned** shows confirmed outgoing simulated payments. **Sending** shows
-  payouts still owed/in flight. Earnings do not refill either match contribution.
+- During play, finalized attributed hits accrue earnings from the victim's
+  remaining match funds. The first whole sat starts a five-second batch window;
+  subsequent hits join without extending it. Each due batch is submitted once. A victim cannot spend more than their entry amount.
+- **Paid out** shows confirmed outgoing simulated payments. **Pending** shows
+  earnings still in the batch or owed/in flight; the countdown shows time to
+  batch close. The payment log records amount, receiving address and UTC time. Earnings do not refill either match contribution.
 - A normal winner receives **all remaining funds from both players**. There is
   no fixed win bonus.
 - On no contest, cancellation, interrupted play or incomplete credit capture,
@@ -75,3 +79,8 @@ still needs `Tools/arena/build-codeset.sh /path/to/NTSC-U-1.02.iso`.
 
 Live verification is recorded under `docs/evidence/prepaid-match/`.
 Older `css-payment-gate/` evidence documents the superseded reservation preview.
+
+The shared scheduler and wallet/provider contracts are documented in
+[`batched-payouts.md`](../../sats-arena/docs/batched-payouts.md).
+Live batching evidence is in `docs/evidence/batching/`; earlier
+`prepaid-match/` evidence predates the five-second timer.

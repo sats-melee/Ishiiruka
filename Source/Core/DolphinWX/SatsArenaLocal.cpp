@@ -1,6 +1,7 @@
 // Copyright 2026 Sats Arena contributors. Licensed under GPLv2+.
 #include "DolphinWX/SatsArenaLocal.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <wx/button.h>
@@ -17,7 +18,7 @@
 #include "Core/Slippi/SatsArenaTracker.h"
 #include "DolphinWX/QR/qrcodegen.hpp"
 #include "sats_arena_local.h"
-static_assert(sizeof(ArenaLocalView) == 616, "Arena local ABI layout mismatch");
+static_assert(sizeof(ArenaLocalView) == 8824, "Arena local ABI layout mismatch");
 
 namespace SatsArenaLocal
 {
@@ -43,14 +44,14 @@ Host& GetHost() { static Host host; return host; }
 
 wxBitmap InvoiceQR(const char* invoice)
 {
-	constexpr int size = 116;
+	const auto qr = qrcodegen::QrCode::encodeText(invoice, qrcodegen::QrCode::Ecc::MEDIUM);
+	const int size = std::max(116, qr.getSize() + 8);
 	wxBitmap bitmap(size, size);
 	wxMemoryDC dc(bitmap);
 	dc.SetBackground(*wxWHITE_BRUSH);
 	dc.Clear();
 	if (*invoice)
 	{
-		const auto qr = qrcodegen::QrCode::encodeText(invoice, qrcodegen::QrCode::Ecc::MEDIUM);
 		const int modules = qr.getSize();
 		const int scale = size / (modules + 8);
 		const int offset = (size - modules * scale) / 2;
@@ -87,7 +88,7 @@ public:
 		m_phase->SetFont(wxFont(11, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
 		root->Add(m_phase, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		m_rules = new wxStaticText(this, wxID_ANY,
-			"FAKE WALLET • simulated payments");
+			"Connecting wallet...");
 		m_rules->Wrap(310);
 		root->Add(m_rules, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		for (int i = 0; i < 2; ++i)
@@ -95,11 +96,18 @@ public:
 			auto* row = new wxBoxSizer(wxHORIZONTAL);
 			m_qr[i] = new wxStaticBitmap(this, wxID_ANY, InvoiceQR(""));
 			m_qr[i]->SetName(wxString::Format("Player %d payment QR code", i + 1));
-			row->Add(m_qr[i], 0, wxRIGHT, 12);
+			row->Add(m_qr[i], 0, wxRIGHT | wxALIGN_CENTER_VERTICAL, 12);
 			auto* info = new wxBoxSizer(wxVERTICAL);
 			auto* player = new wxStaticText(this, wxID_ANY, wxString::Format("PLAYER %d", i + 1));
 			info->Add(player, 0, wxBOTTOM, 8);
+			m_address[i] = new wxTextCtrl(this, wxID_ANY);
+			m_address[i]->SetHint("name@wallet.com");
+			m_address[i]->SetMaxLength(127);
+			m_address[i]->SetName(wxString::Format("Player %d Lightning Address", i + 1));
+			m_address[i]->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { m_addresses_dirty = true; });
+			info->Add(m_address[i], 0, wxBOTTOM | wxEXPAND, 8);
 			m_payment[i] = new wxStaticText(this, wxID_ANY, "Waiting...");
+			m_payment[i]->SetFont(wxFont(9, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 			info->Add(m_payment[i], 0, wxBOTTOM, 8);
 			m_pay[i] = new wxButton(this, wxID_ANY, "Simulate payment");
 			m_pay[i]->SetName(wxString::Format("Simulate Player %d payment", i + 1));
@@ -107,22 +115,27 @@ public:
 			info->Add(m_pay[i], 0);
 			row->Add(info, 1, wxEXPAND);
 			root->Add(row, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
-			m_invoice[i] = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_READONLY);
-			m_invoice[i]->SetName(wxString::Format("Player %d invoice", i + 1));
-			root->Add(m_invoice[i], 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
+
 		}
+		m_save_addresses = new wxButton(this, wxID_ANY, "Save payout addresses");
+		m_save_addresses->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+			if (!m_handle) return;
+			m_addresses_pending = arena_local_addresses(m_handle,
+				m_address[0]->GetValue().utf8_str().data(), m_address[1]->GetValue().utf8_str().data());
+		});
+		root->Add(m_save_addresses, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		m_error = new wxStaticText(this, wxID_ANY, "");
 		m_error->SetForegroundColour(wxColour(255, 160, 135));
 		root->Add(m_error, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
-		root->Add(new wxStaticText(this, wxID_ANY, "Match activity"), 0, wxLEFT | wxRIGHT | wxBOTTOM, 16);
-		m_log = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxSize(-1, 130),
+		root->Add(new wxStaticText(this, wxID_ANY, "Payments / match activity"), 0, wxLEFT | wxRIGHT | wxBOTTOM, 16);
+		m_log = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxSize(-1, 150),
 			wxTE_MULTILINE | wxTE_READONLY);
 		m_log->SetBackgroundColour(wxColour(20, 25, 31));
 		m_log->SetForegroundColour(wxColour(244, 246, 248));
 		m_log->SetFont(wxFont(9, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 		root->Add(m_log, 1, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		auto* help = new wxStaticText(this, wxID_ANY,
-			"Two fresh entry payments per match.\nEarn sats on hits; the winner gets the remaining pot.");
+			"Hits collect into 5-second payout batches.\nMatch end pays the rest immediately.");
 		help->Wrap(310);
 		root->Add(help, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 16);
 		SetSizer(root);
@@ -151,11 +164,31 @@ private:
 		ArenaLocalView view = {};
 		if (!m_handle || !arena_local_snapshot(m_handle, &view))
 			return;
-		if (view.abi_version != 2)
+		if (view.abi_version != 3)
 		{
 			m_error->SetLabel("Payment engine ABI mismatch");
 			return;
 		}
+		if (!m_addresses_loaded && view.phase != 0)
+		{
+			for (int i = 0; i < 2; ++i) m_address[i]->ChangeValue(wxString::FromUTF8(view.addresses[i]));
+			m_addresses_loaded = true;
+		}
+		if (m_addresses_pending && !view.busy)
+		{
+			m_addresses_pending = false;
+			if (!view.error[0])
+			{
+				m_addresses_dirty = false;
+				for (int i = 0; i < 2; ++i) m_address[i]->ChangeValue(wxString::FromUTF8(view.addresses[i]));
+			}
+		}
+		const bool addresses_saved = view.addresses[0][0] && view.addresses[1][0] &&
+			!m_addresses_dirty && !m_addresses_pending;
+		const bool addresses_editable = view.phase == 1 && !view.paid_sats[0] && !view.paid_sats[1];
+		for (auto* address : m_address) address->Enable(addresses_editable);
+		m_save_addresses->Enable(addresses_editable && !view.busy && m_addresses_dirty);
+		m_save_addresses->Show(addresses_editable);
 		auto& gate = SatsArena::GetPaymentGate();
 		const auto css = gate.Read();
 		const auto match = SatsArena::GetTracker().Read();
@@ -231,6 +264,7 @@ private:
 		wxString phase;
 		if (view.phase == 0) phase = "Starting payment engine...";
 		else if (view.phase == 7 || view.error[0]) phase = "Payment needs attention";
+		else if (!addresses_saved && view.phase == 1) phase = "Enter both Lightning Addresses";
 		else if (view.phase == 6) phase = "Sending remaining match payouts...";
 		else if (m_in_match) phase = "Match in progress";
 		else if (m_admitted) phase = "Both paid • choose a stage";
@@ -243,19 +277,21 @@ private:
 		m_phase->SetLabel(phase);
 		m_phase->Wrap(310);
 		m_rules->SetLabel(wxString::Format(
-			"FAKE WALLET • simulated payments\n%llu sats each match • %llu sats / 1%%\nWinner gets the remaining pot",
+			"%s\n%llu sats each match • %llu sats / 1%%\n5-second batches • winner gets the rest",
+			view.simulated ? "FAKE WALLET • simulated payments" : "LIGHTNING WALLET • live payments",
 			static_cast<unsigned long long>(view.entry_sats),
 			static_cast<unsigned long long>(view.sats_per_percent)));
 		m_rules->Wrap(310);
 		for (int i = 0; i < 2; ++i)
 		{
 			m_payment[i]->SetLabel(wxString::Format(
-				"Entry: %s\nMatch funds: %llu sats\nEarned: %llu sats\nSending: %llu sats",
+				"Entry: %s\nFunds left: %llu sats\nPaid out: %llu sats\nPending: %llu sats (%llus)",
 				view.paid_sats[i] ? "PAID" : "Awaiting payment",
 				static_cast<unsigned long long>(view.remaining_sats[i]),
 				static_cast<unsigned long long>(view.earned_sats[i]),
-				static_cast<unsigned long long>(view.pending_sats[i])));
-			const bool show = css.ready && !m_admitted && (view.phase == 1 || view.phase == 2);
+				static_cast<unsigned long long>(view.pending_sats[i]),
+				static_cast<unsigned long long>((view.batch_remaining_ms[i] + 999) / 1000)));
+			const bool show = css.ready && addresses_saved && !m_admitted && (view.phase == 1 || view.phase == 2);
 			const wxString invoice = show && view.invoices[i][0] ? wxString::FromUTF8(view.invoices[i]) : "";
 			if (invoice != m_last_invoice[i])
 			{
@@ -263,26 +299,29 @@ private:
 				m_last_invoice[i] = invoice;
 			}
 			m_qr[i]->Show(!invoice.empty()); // Keep both current-match QR codes after payment.
-			const wxString invoice_label = !invoice.empty() ? invoice :
-				wxString(view.phase == 3 ? "Match in progress" : "Two new invoices at PRESS START");
-			if (m_invoice[i]->GetValue() != invoice_label)
-				m_invoice[i]->ChangeValue(invoice_label);
+
 			m_pay[i]->SetLabel(view.paid_sats[i] ? "Paid" : "Simulate payment");
+			m_pay[i]->Show(view.simulated && (view.phase == 1 || view.phase == 2));
 			m_pay[i]->Enable(show && view.phase == 1 && !view.busy && view.paid_sats[i] == 0);
 		}
 		m_error->SetLabel(wxString::FromUTF8(view.error));
 		m_error->Wrap(310);
-		if (m_log_revision != match.revision)
+		wxString activity;
+		if (match.credit_stream_incomplete) activity += "Credit capture incomplete • remaining funds will be returned\n";
+		// Keep damage context compact; payment receipts are the primary log.
+		const auto first = match.credit_events.size() > 5 ? match.credit_events.size() - 5 : 0;
+		for (std::size_t i = first; i < match.credit_events.size(); ++i)
 		{
-			m_log_revision = match.revision;
-			wxString text;
-			if (match.credit_stream_incomplete) text += "Credit capture incomplete • remaining funds will be returned\n";
-			for (const auto& event : match.credit_events)
-				text += wxString::Format("f%d  P%d -> P%d +%.1f\n", event.frame,
-					event.attacker + 1, event.victim + 1, event.amount);
-			if (match.game_ended)
-				text += match.winner_port >= 0 ? wxString::Format("Player %d wins\n", match.winner_port + 1) : "No contest / tied result\n";
-			m_log->ChangeValue(text);
+			const auto& event = match.credit_events[i];
+			activity += wxString::Format("f%d P%d -> P%d +%.1f damage\n", event.frame, event.attacker + 1, event.victim + 1, event.amount);
+		}
+		if (match.game_ended)
+			activity += match.winner_port >= 0 ? wxString::Format("Player %d wins\n", match.winner_port + 1) : wxString("No contest\n");
+		activity += "\n";
+		activity += wxString::FromUTF8(view.payment_log);
+		if (m_log->GetValue() != activity)
+		{
+			m_log->ChangeValue(activity);
 			m_log->ShowPosition(m_log->GetLastPosition());
 		}
 		Layout();
@@ -301,7 +340,9 @@ private:
 	wxStaticText* m_error = nullptr;
 	wxStaticText* m_payment[2] = {};
 	wxStaticBitmap* m_qr[2] = {};
-	wxTextCtrl* m_invoice[2] = {};
+	wxTextCtrl* m_address[2] = {};
+	wxButton* m_save_addresses = nullptr;
+	bool m_addresses_loaded = false, m_addresses_dirty = false, m_addresses_pending = false;
 	wxTextCtrl* m_log = nullptr;
 	wxButton* m_pay[2] = {};
 	wxString m_last_invoice[2];

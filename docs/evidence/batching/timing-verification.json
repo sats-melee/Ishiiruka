@@ -1,0 +1,12 @@
+{
+  "first_pending_sats": 80,
+  "deadline_ms": 1792899915084,
+  "damage_centi": 2328,
+  "batch_sats": 232,
+  "batch_count": 1,
+  "paid_after_first_observed_credit_ms": 5009,
+  "lateness_ms": 20,
+  "recipient": "alice@example.test",
+  "no_payment_before_deadline": true,
+  "simulated": true
+}

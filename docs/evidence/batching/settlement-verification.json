@@ -1,0 +1,12 @@
+{
+  "first_batch_sats": 232,
+  "first_recipient": "alice@example.test",
+  "remaining_pot_sats": 768,
+  "winner": "P2",
+  "winner_recipient": "bob@example.test",
+  "final_paid_sats": [
+    232,
+    768
+  ],
+  "simulated": true
+}
