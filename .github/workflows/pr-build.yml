@@ -30,9 +30,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          path: Ishiiruka
       - name: Main Branch Check
         shell: bash
         run: |
+          cd Ishiiruka
           git submodule update --init Externals/SlippiRustExtensions
           cd Externals/SlippiRustExtensions
           commit_id=$(git rev-parse HEAD)
@@ -61,17 +64,25 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: recursive
+          path: Ishiiruka
+      - name: "Checkout sats-arena"
+        uses: actions/checkout@v3
+        with:
+          repository: sats-melee/sats-arena
+          path: sats-arena
       - id: rust_ver
         name: Grab Rust Version
         shell: bash
-        run: echo "rust_ver=$(sed -rn 's/^channel = "(.*)"/\1/p' ./Externals/SlippiRustExtensions/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+        run: echo "rust_ver=$(sed -rn 's/^channel = "(.*)"/\1/p' ./Ishiiruka/Externals/SlippiRustExtensions/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - name: "Install Rust"
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ steps.rust_ver.outputs.rust_ver }}  # Pin to our specific Rust version.
           rustflags: ""  # Disable default injection of warnings = errors.
       - name: "(SlippiRustExtensions) Run cargo test"
-        run: cargo test --all --all-features --manifest-path=Externals/SlippiRustExtensions/Cargo.toml
+        run: cargo test --all --all-features --manifest-path=Ishiiruka/Externals/SlippiRustExtensions/Cargo.toml
+      - name: "(sats-arena) Build local host library"
+        run: cargo build --release --target x86_64-pc-windows-msvc -p sats-arena-local --manifest-path=sats-arena/Cargo.toml
       - name: "Remove Redistributable"
         shell: cmd
         run: |
@@ -87,6 +98,7 @@ jobs:
       - name: 'Fetch Git Tags'
         shell: bash
         if: success()
+        working-directory: ${{ github.workspace }}/Ishiiruka
         run: |
           git fetch --prune --unshallow
           echo "GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_ENV
@@ -96,52 +108,22 @@ jobs:
       - name: "Build ${{ matrix.build_type }} Dolphin"
         shell: cmd
         run: |
-          msbuild /p:Configuration=${{ matrix.build_config }} /p:Platform=x64 ${{ github.workspace }}\Source\Dolphin.sln
+          msbuild /p:Configuration=${{ matrix.build_config }} /p:Platform=x64 ${{ github.workspace }}\Ishiiruka\Source\Dolphin.sln
       - name: "Prepare ${{ matrix.build_type }} Artifact"
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ github.workspace }}/Ishiiruka
         run: |
           Xcopy /Y /E /I .\Data\Sys .\Binary\x64\Sys
           cd .\Binary\x64\
           fsutil file createnew FIX-VCRUNTIME140-ERROR.txt 0
           echo "Download and install this: https://aka.ms/vs/16/release/vc_redist.x64.exe" > .\FIX-VCRUNTIME140-ERROR.txt
       - name: "Add Playback codes"
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ github.workspace }}/Ishiiruka
         if: matrix.build_type == 'Playback'
         run: |
           Xcopy /Y /E /I .\Data\Sys .\Binary\x64\Sys
           Xcopy /Y /E /I .\Data\PlaybackGeckoCodes\* .\Binary\x64\Sys\GameSettings\
-      - name: "Check whether to codesign ${{ matrix.build_type }} Dolphin"
-        shell: powershell
-        env:
-          SLIPPI_BUILD_TYPE: ${{ matrix.build_type }}
-        run: |
-          $msg = git log -1 --no-merges --pretty=%B
-          $build_type = $env:SLIPPI_BUILD_TYPE.ToLower()
-          if ($msg -notmatch "^release:.*" -And $msg -notmatch "^release\($build_type\):.*") {
-            echo "not release, skipping code signing"
-          } elseif ([string]::IsNullOrWhiteSpace("${{ secrets.AZURE_CLIENT_ID }}")) {
-            echo "no Azure credentials available, skipping code signing"
-          } else {
-            echo "SLIPPI_SHOULD_SIGN=true" >> $env:GITHUB_ENV
-          }
-      - name: "Codesign ${{ matrix.build_type }} Dolphin"
-        if: env.SLIPPI_SHOULD_SIGN == 'true'
-        uses: azure/artifact-signing-action@v2
-        with:
-          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-          endpoint: https://eus.codesigning.azure.net/
-          signing-account-name: slippi
-          certificate-profile-name: slippi-release
-          files: |
-            ${{ github.workspace }}\Binary\x64\Slippi Dolphin.exe
-            ${{ github.workspace }}\Binary\x64\slippi_rust_extensions.dll
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
       - name: "Package ${{ matrix.build_type }} Dolphin"
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ github.workspace }}/Ishiiruka
         run: |
           $FILE_NAME="${{ env.CURR_DATE }}-${{ env.GIT_HASH }}-${{ env.GIT_TAG }}-${{ matrix.artifact_name }}.zip"
           mkdir artifact
@@ -155,31 +137,27 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: "./artifact/"
+          path: "./Ishiiruka/artifact/"
 
   linux:
     needs: [skip_duplicates]
     if: ${{ needs.skip_duplicates.outputs.should_skip != 'true' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        build_type: [Netplay, Playback]
-        include:
-          - build_type: Netplay
-            artifact_name: linux-netplay
-            build_config: netplay
-          - build_type: Playback
-            artifact_name: linux-playback
-            build_config: playback
-    name: "Ubuntu ${{ matrix.build_type }}"
+    name: "Ubuntu Arena"
     runs-on: ubuntu-22.04
     steps:
       - name: "Checkout"
         uses: actions/checkout@v3
         with:
           submodules: recursive
+          path: Ishiiruka
+      - name: "Checkout sats-arena"
+        uses: actions/checkout@v3
+        with:
+          repository: sats-melee/sats-arena
+          path: sats-arena
       - name: 'Fetch Git Tags'
         if: success()
+        working-directory: ${{ github.workspace }}/Ishiiruka
         run: |
           git fetch --prune --unshallow
           echo "GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_ENV
@@ -194,9 +172,11 @@ jobs:
           sudo apt update
           sudo apt install \
           cmake \
+          ninja-build \
           pkg-config \
           git \
           wget \
+          zip \
           libao-dev \
           libasound2-dev \
           libavcodec-dev \
@@ -232,42 +212,70 @@ jobs:
       - id: rust_ver
         name: Grab Rust Version
         shell: bash
-        run: echo "rust_ver=$(sed -rn 's/^channel = "(.*)"/\1/p' ./Externals/SlippiRustExtensions/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+        run: echo "rust_ver=$(sed -rn 's/^channel = "(.*)"/\1/p' ./Ishiiruka/Externals/SlippiRustExtensions/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - name: "Install Rust"
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ steps.rust_ver.outputs.rust_ver }}  # Pin to our specific Rust version.
           rustflags: ""  # Disable default injection of warnings = errors.
       - name: "(SlippiRustExtensions) Run cargo test"
-        run: cargo test --all --all-features --manifest-path=Externals/SlippiRustExtensions/Cargo.toml
-      - name: "Build ${{ matrix.build_type }} Dolphin"
+        run: cargo test --all --all-features --manifest-path=Ishiiruka/Externals/SlippiRustExtensions/Cargo.toml
+      - name: "(sats-arena) Run cargo test"
+        run: cargo test --workspace --manifest-path=sats-arena/Cargo.toml
+      - name: "Build Arena Dolphin"
         if: success()
         working-directory: ${{ github.workspace }}
         run: |
-          ./build-linux.sh ${{ matrix.build_config }}
-      - name: "Build ${{ matrix.build_type }} AppImage"
+          cmake -S Ishiiruka -B Ishiiruka/build-arena -G Ninja \
+            -DLINUX_LOCAL_DEV=ON -DENABLE_SATS_ARENA=ON -DENABLE_LLVM=OFF \
+            -DDISTRIBUTOR="Sats Arena preview" -DCMAKE_BUILD_TYPE=Release
+          cmake --build Ishiiruka/build-arena --target dolphin-emu --target sats-arena-wallet-check --parallel "$(nproc)"
+          cp -a Ishiiruka/Data/Sys Ishiiruka/build-arena/Binaries/
+      - name: "Package native bundle"
         if: success()
         working-directory: ${{ github.workspace }}
         run: |
-          chmod +x ./build-appimage.sh
-          ./build-appimage.sh ${{ matrix.build_config }}
-      - name: "Package"
+          B=Ishiiruka/build-arena/Binaries
+          L=Ishiiruka/build-arena/Source/Core/DolphinWX
+          mkdir -p artifact/native/lib
+          cp "$B/dolphin-emu" "$B/sats-arena-wallet-check" artifact/native/
+          cp -a "$B/Sys" artifact/native/Sys
+          cp Ishiiruka/Tools/arena/alsa-pulse.conf artifact/native/
+          cp "$L/libsats_arena_local.so" "$L/libslippi_rust_extensions.so" artifact/native/lib/
+          chmod +x artifact/native/dolphin-emu artifact/native/sats-arena-wallet-check
+          FILE_NAME=${{ env.CURR_DATE }}-${{ env.GIT_HASH }}-${{ env.GIT_TAG }}-linux-arena.zip
+          cd artifact && zip -r "${FILE_NAME}" native
+      - name: "Build SteamOS-compatible AppImage"
         if: success()
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ github.workspace }}/Ishiiruka
         run: |
-          mkdir artifact
-          FILE_NAME=${{ env.CURR_DATE }}-${{ env.GIT_HASH }}-${{ env.GIT_TAG }}-${{ matrix.artifact_name }}.zip
-          chmod +x ./*.AppImage
-          zip -r -j "${FILE_NAME}" ./*.AppImage*
-          pushd ./AppDir/usr/bin/
-          zip -r -u "../../../${FILE_NAME}" ./Sys
-          popd
-          mv "${FILE_NAME}" ./artifact/
+          export NO_STRIP=on
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O Tools/linuxdeploy
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage -O Tools/linuxdeploy-plugin-appimage
+          chmod +x Tools/linuxdeploy Tools/linuxdeploy-plugin-appimage
+          rm -rf ./AppDir/
+          mkdir -p AppDir/apprun-hooks
+          cp Data/linux-env.sh AppDir/apprun-hooks/
+          # linuxdeploy bundles every shared-library dependency (gtk, webkit, etc.)
+          # so the result runs on SteamOS's read-only rootfs.
+          ./Tools/linuxdeploy --appdir=./AppDir \
+            -e ./build-arena/Binaries/dolphin-emu \
+            -e ./build-arena/Binaries/sats-arena-wallet-check \
+            -d ./Data/slippi-online.desktop \
+            -i ./Data/dolphin-emu.png
+          cp -r build-arena/Binaries/Sys AppDir/usr/bin/
+          cp Tools/arena/alsa-pulse.conf AppDir/usr/bin/
+          cp build-arena/Source/Core/DolphinWX/libsats_arena_local.so AppDir/usr/lib/
+          cp build-arena/Source/Core/DolphinWX/libslippi_rust_extensions.so AppDir/usr/lib/
+          # known conflicts/crashes on modern distros
+          rm -f AppDir/usr/lib/libgmodule* AppDir/usr/lib/librsvg-2.so.2
+          OUTPUT=Sats-Arena-x86_64.AppImage ./Tools/linuxdeploy-plugin-appimage --appdir=./AppDir/
+          mv Sats-Arena-x86_64.AppImage ../artifact/
       - name: "Publish"
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
+          name: linux-arena
           path: "./artifact/"
 
   macOS:
@@ -285,34 +293,31 @@ jobs:
             artifact_name: macOS-playback
             build_config: playback
     name: "macOS ${{ matrix.build_type }}"
-    runs-on: macos-15-intel
+    runs-on: macos-15
     steps:
       - name: "Checkout"
         uses: actions/checkout@v3
         with:
           submodules: recursive
+          path: Ishiiruka
+      - name: "Checkout sats-arena"
+        uses: actions/checkout@v3
+        with:
+          repository: sats-melee/sats-arena
+          path: sats-arena
       - name: 'Fetch Git Tags'
         if: success()
+        working-directory: ${{ github.workspace }}/Ishiiruka
         run: |
           git fetch --prune --unshallow
           echo "GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_ENV
           echo "GIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
           echo "GIT_TAG=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
           echo "CURR_DATE=$(date +%Y-%m-%d)" >> $GITHUB_ENV
-      # - name: "Install 10.14 SDK"
-      #   if: success()
-      #   shell: bash
-      #   working-directory: ${{ github.workspace }}
-      #   run: |
-      #     wget https://github.com/phracker/MacOSX-SDKs/releases/download/10.15/MacOSX10.14.sdk.tar.xz
-      #     tar -xf MacOSX10.14.sdk.tar.xz
-      #     rm MacOSX10.14.sdk.tar.xz
-      #     sudo mv MacOSX10.14.sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/
       - name: "Download and Install prerequisites"
         if: success()
         shell: bash
         run: |
-          rm '/usr/local/bin/2to3' || true
           echo "HOMEBREW_NO_AUTO_UPDATE=1" >> $GITHUB_ENV
           brew install \
           libpng \
@@ -321,48 +326,66 @@ jobs:
           sound-touch \
           hidapi \
           python@3.10
-          brew uninstall cmake
-          brew install performous/pinned_cmake3/cmake@3.31.7
-          # brew upgrade cmake
+          # Pin CMake 3.31.7 (official universal binary; newer CMake rejects this tree)
+          curl -fsSL https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-macos-universal.tar.gz -o /tmp/cmake.tar.gz
+          sudo tar -xzf /tmp/cmake.tar.gz -C /opt
+          echo "/opt/cmake-3.31.7-macos-universal/CMake.app/Contents/bin" >> $GITHUB_PATH
       - id: rust_ver
         name: Grab Rust Version
         shell: bash
-        run: echo "rust_ver=$(sed -rn 's/^channel = "(.*)"/\1/p' ./Externals/SlippiRustExtensions/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+        run: echo "rust_ver=$(sed -rn 's/^channel = "(.*)"/\1/p' ./Ishiiruka/Externals/SlippiRustExtensions/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - name: "Install Rust"
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ steps.rust_ver.outputs.rust_ver }}  # Pin to our specific Rust version.
           rustflags: ""  # Disable default injection of warnings = errors.
       - name: "(SlippiRustExtensions) Run cargo test"
-        run: cargo test --all --all-features --manifest-path=Externals/SlippiRustExtensions/Cargo.toml
+        run: cargo test --all --all-features --manifest-path=Ishiiruka/Externals/SlippiRustExtensions/Cargo.toml
       - name: "Build ${{ matrix.build_type }} Dolphin"
         if: success()
         shell: bash
-        working-directory: ${{ github.workspace }}
-        env:
-          CERTIFICATE_MACOS_APPLICATION: ${{ secrets.CERTIFICATE_MACOS_APPLICATION }}
+        working-directory: ${{ github.workspace }}/Ishiiruka
         run: |
-          export LIBRARY_PATH=$LIBRARY_PATH:/usr/local/lib
+          export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"
           chmod +x ./build-mac.sh && ./build-mac.sh ${{ matrix.build_config }}
           mkdir artifact
           FILE_NAME=${{ env.CURR_DATE }}-${{ env.GIT_HASH }}-${{ env.GIT_TAG }}-${{ matrix.artifact_name }}
           echo "FILE_NAME=$FILE_NAME" >> $GITHUB_ENV
-      - name: "Codesign ${{ matrix.build_type}} Dolphin"
-        if: success() && env.CERTIFICATE_MACOS_APPLICATION != null
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        env:
-          CERTIFICATE_MACOS_APPLICATION: ${{ secrets.CERTIFICATE_MACOS_APPLICATION }}
-          CERTIFICATE_MACOS_PASSWORD: ${{ secrets.CERTIFICATE_MACOS_PASSWORD }}
-        run: |
-          chmod +x Tools/load-macos-certs-ci.sh && ./Tools/load-macos-certs-ci.sh
-          mkdir -p ~/private_keys/
-          echo '${{ secrets.APPLE_CONNECT_API_KEY }}' > ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
-          /usr/bin/codesign -f -s "${{ secrets.APPLE_IDENTITY_HASH }}" --deep --options runtime --entitlements Source/Core/DolphinWX/Entitlements.plist ./build/Binaries/Slippi\ Dolphin.app
-      - name: "Package ${{ matrix.build_type }} Release DMG"
+      - name: "Bundle Rust dylibs and ad-hoc sign"
         if: success()
         shell: bash
         working-directory: ${{ github.workspace }}
+        run: |
+          APP="Ishiiruka/build/Binaries/Slippi Dolphin.app"
+          BIN="$APP/Contents/MacOS/Slippi Dolphin"
+          mkdir -p "$APP/Contents/Frameworks"
+          # Ship the wallet check tool inside the bundle
+          cp Ishiiruka/build/Source/Core/DolphinWX/sats-arena-wallet-check "$APP/Contents/MacOS/" || true
+          for lib in \
+            sats-arena/target/release/libsats_arena_local.dylib \
+            Ishiiruka/Externals/SlippiRustExtensions/target/release/libslippi_rust_extensions.dylib; do
+            [ -f "$lib" ] && cp "$lib" "$APP/Contents/Frameworks/"
+          done
+          for exe in "$BIN" "$APP/Contents/MacOS/sats-arena-wallet-check"; do
+            [ -f "$exe" ] || continue
+            install_name_tool -add_rpath @executable_path/../Frameworks "$exe" 2>/dev/null || true
+            for name in libsats_arena_local libslippi_rust_extensions; do
+              old=$(otool -L "$exe" | grep "$name.dylib" | awk '{print $1}' | head -1)
+              if [ -n "$old" ] && [ "$old" != "@rpath/$name.dylib" ]; then
+                install_name_tool -change "$old" "@rpath/$name.dylib" "$exe"
+              fi
+            done
+          done
+          for dylib in "$APP/Contents/Frameworks/"*.dylib; do
+            [ -f "$dylib" ] || continue
+            install_name_tool -id "@rpath/$(basename "$dylib")" "$dylib"
+          done
+          # Apple Silicon refuses to run unsigned code from quarantined archives; ad-hoc sign everything
+          codesign --force --deep --sign - "$APP"
+      - name: "Package ${{ matrix.build_type }} Release DMG"
+        if: success()
+        shell: bash
+        working-directory: ${{ github.workspace }}/Ishiiruka
         run: |
           rm build/Binaries/traversal_server
           chmod +x Tools/create-dmg/run.sh
@@ -380,26 +403,9 @@ jobs:
             "${{ env.FILE_NAME }}.dmg" \
             "./build/Binaries/"
           mv "${{ env.FILE_NAME }}.dmg" artifact/
-      - name: "Sign and Notarize ${{ matrix.build_type }} Release DMG"
-        if: success() && env.CERTIFICATE_MACOS_APPLICATION != null
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        env:
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_ISSUER_ID: ${{ secrets.APPLE_ISSUER_ID }}
-          CERTIFICATE_MACOS_APPLICATION: ${{ secrets.CERTIFICATE_MACOS_APPLICATION }}
-        run: |
-          /usr/bin/codesign -f -s "${{ secrets.APPLE_IDENTITY_HASH }}" --deep --options runtime ./artifact/${{ env.FILE_NAME }}.dmg
-          chmod +x Tools/notarize_netplay.sh && ./Tools/notarize_netplay.sh ./artifact/${{ env.FILE_NAME }}.dmg
       - name: "Publish"
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: "./artifact/"
-      #- name: "Enable Admin Debugging via SSH (if failed)"
-      # if: failure()
-      # uses: luchihoratiu/debug-via-ssh@main
-      # with:
-      #  NGROK_AUTH_TOKEN: ${{ secrets.NGROK_TOKEN }}
-      #   SSH_PASS: ${{ secrets.NGROK_PASS }}
+          path: "./Ishiiruka/artifact/"

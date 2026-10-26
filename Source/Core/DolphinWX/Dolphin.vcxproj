@@ -87,8 +87,25 @@
       <EnableDpiAwareness>true</EnableDpiAwareness>
     </Manifest>
     <ClCompile>
-      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='ReleasePlayback|x64'">IS_PLAYBACK;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='ReleasePlayback|x64'">IS_PLAYBACK;SATS_ARENA;SATS_ARENA_LOCAL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
+    <ClCompile>
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|x64'">SATS_ARENA;SATS_ARENA_LOCAL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <ClCompile>
+      <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(DolphinRootDir)..\sats-arena\local\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile>
+      <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='ReleasePlayback|x64'">$(DolphinRootDir)..\sats-arena\local\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(DolphinRootDir)..\sats-arena\target\x86_64-pc-windows-msvc\release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies Condition="'$(Configuration)|$(Platform)'=='Release|x64'">sats_arena_local.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <Link>
+      <AdditionalLibraryDirectories Condition="'$(Configuration)|$(Platform)'=='ReleasePlayback|x64'">$(DolphinRootDir)..\sats-arena\target\x86_64-pc-windows-msvc\release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies Condition="'$(Configuration)|$(Platform)'=='ReleasePlayback|x64'">sats_arena_local.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
     <PreLinkEvent>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
       </Command>
@@ -166,6 +183,9 @@
     <ClCompile Include="NetPlay\NetWindow.cpp" />
     <ClCompile Include="FifoPlayerDlg.cpp" />
     <ClCompile Include="Frame.cpp" />
+    <ClCompile Include="QR\qrcodegen.cpp" Condition="'$(Configuration)|$(Platform)'=='Release|x64' Or '$(Configuration)|$(Platform)'=='ReleasePlayback|x64'" />
+    <ClCompile Include="SatsArenaLocal.cpp" Condition="'$(Configuration)|$(Platform)'=='Release|x64' Or '$(Configuration)|$(Platform)'=='ReleasePlayback|x64'" />
+    <ClCompile Include="SatsArenaPanel.cpp" Condition="'$(Configuration)|$(Platform)'=='Release|x64' Or '$(Configuration)|$(Platform)'=='ReleasePlayback|x64'" />
     <ClCompile Include="FrameAui.cpp" />
     <ClCompile Include="FrameTools.cpp" />
     <ClCompile Include="GameListCtrl.cpp" />
@@ -352,6 +372,7 @@
     <DataPortableFile Include="$(DolphinRootDir)Data\portable.txt" />
     <ExternalDlls Include="$(ExternalsDir)OpenAL\$(PlatformName)\*.dll;$(ExternalsDir)wxWidgets3\dlls\Webview2\$(PlatformName)\*.dll" />
     <RustDlls Include="$(ExternalsDir)SlippiRustExtensions\target\x86_64-pc-windows-msvc\release\slippi*.dll;$(ExternalsDir)SlippiRustExtensions\target\x86_64-pc-windows-msvc\release\slippi*.lib" />
+    <SatsArenaDlls Include="$(DolphinRootDir)..\sats-arena\target\x86_64-pc-windows-msvc\release\sats_arena_local.dll" />
     <BinaryFiles Include="$(TargetPath)" />
     <AllInputFiles Include="@(DataSysFiles);@(DataTxtFiles);@(ExternalDlls);@(BinaryFiles)" />
   </ItemGroup>
@@ -364,6 +385,8 @@
     <Copy SourceFiles="@(ExternalDlls)" DestinationFolder="$(BinaryOutputDir)" Condition="!Exists('$(BinaryOutputDir)%(RecursiveDir)%(Filename)%(ExternalDlls.Extension)') OR $([System.DateTime]::Parse('%(ModifiedTime)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(BinaryOutputDir)%(RecursiveDir)%(Filename)%(ExternalDlls.Extension)').Ticks)" />
     <Message Text="Copying SlippiRustExtensions .dlls" Importance="High" />
     <Copy SourceFiles="@(RustDlls)" DestinationFolder="$(BinaryOutputDir)" Condition="!Exists('$(BinaryOutputDir)%(RecursiveDir)%(Filename)%(RustDlls.Extension)') OR $([System.DateTime]::Parse('%(ModifiedTime)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(BinaryOutputDir)%(RecursiveDir)%(Filename)%(RustDlls.Extension)').Ticks)" />
+    <Message Text="Copying Sats Arena .dlls" Importance="High" Condition="Exists('$(DolphinRootDir)..\sats-arena\target\x86_64-pc-windows-msvc\release\sats_arena_local.dll')" />
+    <Copy SourceFiles="@(SatsArenaDlls)" DestinationFolder="$(BinaryOutputDir)" Condition="Exists('$(DolphinRootDir)..\sats-arena\target\x86_64-pc-windows-msvc\release\sats_arena_local.dll')" />
     <Message Text="Copy: @(BinaryFiles) -&gt; $(BinaryOutputDir)" Importance="High" />
     <Copy SourceFiles="@(BinaryFiles)" DestinationFolder="$(BinaryOutputDir)" />
   </Target>
