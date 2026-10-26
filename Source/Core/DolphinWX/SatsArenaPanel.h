@@ -22,6 +22,8 @@ public:
 
 private:
 	void OnPaint(wxPaintEvent& event);
+	void OnSize(wxSizeEvent& event);
+	void OnLogTimer(wxTimerEvent& event);
 	void LayoutActivity();
 	void UpdateLog(bool force = false);
 	wxTextCtrl* m_log = nullptr;

@@ -129,12 +129,8 @@ SatsArenaPanel::SatsArenaPanel(wxWindow* parent)
 	m_log->SetFont(wxFont(9, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 	m_log->SetName("Finalized player damage log");
 	Bind(wxEVT_PAINT, &SatsArenaPanel::OnPaint, this);
-	Bind(wxEVT_SIZE, [this](wxSizeEvent& event) {
-		LayoutActivity();
-		Refresh(false);
-		event.Skip();
-	});
-	Bind(wxEVT_TIMER, [this](wxTimerEvent&) { UpdateLog(); });
+	Bind(wxEVT_SIZE, &SatsArenaPanel::OnSize, this);
+	Bind(wxEVT_TIMER, &SatsArenaPanel::OnLogTimer, this);
 	LayoutActivity();
 	UpdateLog(true);
 	m_timer.Start(100);
@@ -189,6 +185,18 @@ void SatsArenaPanel::UpdateLog(bool force)
 	// Follow the newest message on every update without taking focus from the game.
 	m_log->SetInsertionPointEnd();
 	m_log->ShowPosition(m_log->GetLastPosition());
+}
+
+void SatsArenaPanel::OnSize(wxSizeEvent& event)
+{
+	LayoutActivity();
+	Refresh(false);
+	event.Skip();
+}
+
+void SatsArenaPanel::OnLogTimer(wxTimerEvent&)
+{
+	UpdateLog();
 }
 
 void SatsArenaPanel::OnPaint(wxPaintEvent&)

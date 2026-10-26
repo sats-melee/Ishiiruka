@@ -60,6 +60,15 @@ const wxColour GREEN(143, 209, 166);
 const int CONTENT_WIDTH = 304;
 const int MARGIN = 14;
 
+// Per-player control IDs. Capturing lambdas cannot be used with this
+// wxWidgets' Bind on MSVC (its type info default-constructs the functor).
+enum
+{
+    ID_ADDRESS_BASE = wxID_HIGHEST + 1,
+    ID_VERIFY_BASE = ID_ADDRESS_BASE + 4,
+    ID_PAY_BASE = ID_VERIFY_BASE + 4,
+};
+
 wxStaticText* Label(wxWindow* parent, const wxString& text, int points,
                     const wxColour& colour = TEXT_COLOUR, bool bold = false, long style = 0)
 {
@@ -163,7 +172,7 @@ public:
             heading->Add(entry, 0);
             info->Add(heading, 0, wxEXPAND | wxBOTTOM, 9);
 
-            m_address[i] = new wxTextCtrl(row, wxID_ANY);
+            m_address[i] = new wxTextCtrl(row, ID_ADDRESS_BASE + i);
             m_address[i]->SetHint("name@wallet.com");
             m_address[i]->SetMaxLength(127);
             m_address[i]->SetMinSize(wxSize(80, -1));
@@ -171,19 +180,12 @@ public:
             m_address[i]->SetBackgroundColour(wxColour(36, 38, 46));
             m_address[i]->SetForegroundColour(TEXT_COLOUR);
             m_address[i]->SetName(wxString::Format("Player %d Lightning Address", i + 1));
-            m_address[i]->Bind(wxEVT_TEXT, [this, i](wxCommandEvent&) {
-                m_addresses_dirty[i] = true;
-                m_edited_at[i] = std::chrono::steady_clock::now();
-                m_auto_failure[i].clear();
-            });
+            m_address[i]->Bind(wxEVT_TEXT, &FundingPanel::OnAddressEdited, this, ID_ADDRESS_BASE + i);
             auto* address_row = new wxBoxSizer(wxHORIZONTAL);
             address_row->Add(m_address[i], 1, wxRIGHT | wxALIGN_CENTER_VERTICAL, 6);
-            m_verify[i] = new wxButton(row, wxID_ANY, "Retry", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+            m_verify[i] = new wxButton(row, ID_VERIFY_BASE + i, "Retry", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
             m_verify[i]->SetName(wxString::Format("Retry Player %d receiving address", i + 1));
-            m_verify[i]->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent&) {
-                m_auto_attempted[i].clear();
-                m_auto_failure[i].clear();
-            });
+            m_verify[i]->Bind(wxEVT_BUTTON, &FundingPanel::OnVerifyRetry, this, ID_VERIFY_BASE + i);
             address_row->Add(m_verify[i], 0);
             info->Add(address_row, 0, wxBOTTOM | wxEXPAND, 4);
             m_verification[i] = Label(row, "Not verified", 8, MUTED);
@@ -212,9 +214,9 @@ public:
             m_metrics[i]->GetItem(2)->GetSizer()->Add(m_pending_delay[i], 0, wxTOP, 2);
             m_body[i]->Add(m_metrics[i], 1, wxALIGN_CENTER_VERTICAL);
             info->Add(m_body[i], 0, wxEXPAND);
-            m_pay[i] = new wxButton(row, wxID_ANY, "Pay from test wallet");
+            m_pay[i] = new wxButton(row, ID_PAY_BASE + i, "Pay from test wallet");
             m_pay[i]->SetName(wxString::Format("Pay Player %d test entry", i + 1));
-            m_pay[i]->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent&) { Send(i < 2 ? 2 + i : 7 + i); });
+            m_pay[i]->Bind(wxEVT_BUTTON, &FundingPanel::OnPayClicked, this, ID_PAY_BASE + i);
             m_pay[i]->Hide();
             info->Add(m_pay[i], 0, wxTOP, 8);
             info->Add(Divider(row), 0, wxTOP | wxEXPAND, MARGIN);
@@ -241,7 +243,7 @@ public:
         m_help = Label(this, "", 8, MUTED);
         root->Add(m_help, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
         SetSizer(root);
-        Bind(wxEVT_TIMER, [this](wxTimerEvent&) { Poll(); });
+        Bind(wxEVT_TIMER, &FundingPanel::OnPollTimer, this);
         m_timer.Start(100);
         Poll();
     }
@@ -254,6 +256,32 @@ private:
 		if (!m_handle || !arena_local_action(m_handle, action))
 			return false;
 		return true;
+	}
+
+	void OnAddressEdited(wxCommandEvent& event)
+	{
+		const int i = event.GetId() - ID_ADDRESS_BASE;
+		if (i < 0 || i > 3) return;
+		m_addresses_dirty[i] = true;
+		m_edited_at[i] = std::chrono::steady_clock::now();
+		m_auto_failure[i].clear();
+	}
+	void OnVerifyRetry(wxCommandEvent& event)
+	{
+		const int i = event.GetId() - ID_VERIFY_BASE;
+		if (i < 0 || i > 3) return;
+		m_auto_attempted[i].clear();
+		m_auto_failure[i].clear();
+	}
+	void OnPayClicked(wxCommandEvent& event)
+	{
+		const int i = event.GetId() - ID_PAY_BASE;
+		if (i < 0 || i > 3) return;
+		Send(i < 2 ? 2 + i : 7 + i);
+	}
+	void OnPollTimer(wxTimerEvent&)
+	{
+		Poll();
 	}
 
 	static const char* TeamName(unsigned team)
