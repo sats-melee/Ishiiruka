@@ -302,22 +302,32 @@ if(APPLE)
 	endif()
 
 	# Identify the target system:
-	# Ask for 64-bit binary.
-	set(TARGET_FLAGS "-arch x86_64")
-	# Minimum OS X version.
-	# This is inserted into the Info.plist as well.
-	# Note that the SDK determines the maximum version of which optional
-	# features can be used, not the minimum required version to run.
-	set(OSX_MIN_VERSION "10.13")
+	# Ask for 64-bit binary. Default to the host architecture; x86_64-only
+	# CPU flags must not be passed when building for Apple Silicon.
+	if(NOT CMAKE_OSX_ARCHITECTURES)
+		set(CMAKE_OSX_ARCHITECTURES "${CMAKE_SYSTEM_PROCESSOR}")
+	endif()
+	if(CMAKE_OSX_ARCHITECTURES MATCHES "arm64")
+		set(TARGET_FLAGS "-arch arm64")
+		# arm64 macOS starts at 11.0.
+		set(OSX_MIN_VERSION "11.0")
+	else()
+		set(TARGET_FLAGS "-arch x86_64")
+		# Minimum OS X version.
+		# This is inserted into the Info.plist as well.
+		# Note that the SDK determines the maximum version of which optional
+		# features can be used, not the minimum required version to run.
+		set(OSX_MIN_VERSION "10.13")
+		# Specify target CPUs.
+		set(TARGET_FLAGS "${TARGET_FLAGS} -mssse3")
+		set(TARGET_FLAGS "${TARGET_FLAGS} -march=core2")
+	endif()
 	# set(CMAKE_OSX_SYSROOT "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.14.sdk")
-	set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13")
+	set(CMAKE_OSX_DEPLOYMENT_TARGET "${OSX_MIN_VERSION}")
 	set(TARGET_FLAGS "${TARGET_FLAGS} -mmacosx-version-min=${OSX_MIN_VERSION}")
 	# Do not warn about frameworks that are not available on all architectures.
 	# This avoids a warning when linking with QuickTime.
 	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-no_arch_warnings")
-	# Specify target CPUs.
-	set(TARGET_FLAGS "${TARGET_FLAGS} -mssse3")
-	set(TARGET_FLAGS "${TARGET_FLAGS} -march=core2")
 	# Target flags apply to both C and C++ compilation.
 	# CMake passes these to the compiler on the link command line as well.
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${TARGET_FLAGS}")
