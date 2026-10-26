@@ -6,13 +6,36 @@
 #include <sstream>
 #include <string>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#include <sys/types.h>
+#else
 #include <asm/hwcap.h>
 #include <sys/auxv.h>
+#endif
 
 #include "Common/CommonTypes.h"
 #include "Common/CPUDetect.h"
 #include "Common/StringUtil.h"
 
+#if defined(__APPLE__)
+static bool AppleArmFeature(const char* name)
+{
+	// Never claim a feature the sysctl does not confirm; every Apple Silicon
+	// chip implements these, so a confirmed result is the normal path.
+	int64_t value = 0;
+	size_t size = sizeof(value);
+	return sysctlbyname(name, &value, &size, nullptr, 0) == 0 && value != 0;
+}
+
+static std::string GetCPUString()
+{
+	char brand[128] = "Unknown";
+	size_t size = sizeof(brand);
+	sysctlbyname("machdep.cpu.brand_string", brand, &size, nullptr, 0);
+	return brand;
+}
+#else
 const char procfile[] = "/proc/cpuinfo";
 
 static std::string GetCPUString()
@@ -37,6 +60,7 @@ static std::string GetCPUString()
 
 	return cpu_string;
 }
+#endif
 
 CPUInfo cpu_info;
 
@@ -60,6 +84,16 @@ void CPUInfo::Detect()
 	num_cores = sysconf(_SC_NPROCESSORS_CONF);
 	strncpy(cpu_string, GetCPUString().c_str(), sizeof(cpu_string));
 
+#if defined(__APPLE__)
+	// Every Apple Silicon chip implements these; confirm where the kernel
+	// exposes them so nothing is claimed without support.
+	bFP = true;
+	bASIMD = true;
+	bAES = AppleArmFeature("hw.optional.arm.FEAT_AES");
+	bCRC32 = AppleArmFeature("hw.optional.arm.FEAT_CRC32");
+	bSHA1 = AppleArmFeature("hw.optional.arm.FEAT_SHA1");
+	bSHA2 = AppleArmFeature("hw.optional.arm.FEAT_SHA256");
+#else
 	unsigned long hwcaps = getauxval(AT_HWCAP);
 	bFP = hwcaps & HWCAP_FP;
 	bASIMD = hwcaps & HWCAP_ASIMD;
@@ -67,6 +101,7 @@ void CPUInfo::Detect()
 	bCRC32 = hwcaps & HWCAP_CRC32;
 	bSHA1 = hwcaps & HWCAP_SHA1;
 	bSHA2 = hwcaps & HWCAP_SHA2;
+#endif
 }
 
 // Turn the CPU info into a string we can show
