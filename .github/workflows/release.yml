@@ -5,27 +5,38 @@ on:
     types: [released]
 
 jobs:
-  package:
-    name: Release New Slippi Dolphin
+  wait-for-builds:
+    name: Wait for all builds to complete
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        check: ["Ubuntu Arena", "Windows Netplay", "Windows Playback", "macOS Netplay", "macOS Playback"]
     steps:
-      - name: 'Get version'
-        run: |
-          echo "VERSION=$(echo ${{ github.ref }} | cut -d "v" -f 2)" >> $GITHUB_ENV
+      - name: Wait for build job - ${{ matrix.check }}
+        uses: lewagon/wait-on-check-action@v1.7.0
+        with:
+          ref: ${{ github.event.release.target_commitish }}
+          check-name: ${{ matrix.check }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
+          allowed-conclusions: success
+
+  package:
+    name: Release Sats Arena Dolphin
+    runs-on: ubuntu-latest
+    needs: wait-for-builds
+    steps:
       - name: Download latest artifacts
         uses: dawidd6/action-download-artifact@v6
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           workflow: pr-build.yml
-          branch: slippi
-      - name: Organize release files"
+          commit: ${{ github.event.release.target_commitish }}
+      - name: Organize release files
         run: |
-          rm -rf *playback*
           find ./ -mindepth 2 -type f -exec mv -t ./ -i '{}' +
           find . -type d -empty -delete
-          unzip *linux* && rm -rf Sys && mv *linux* "FM-Slippi-${{ env.VERSION }}-Linux.zip"
-          mv *.dmg "FM-Slippi-${{ env.VERSION }}-Mac.dmg"
-          mv *windows* "FM-Slippi-${{ env.VERSION }}-Win.zip"
+          ls -la
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
         with:
