@@ -62,12 +62,18 @@ typedef x86_thread_state64_t SContext;
 #define CTX_R14 __r14
 #define CTX_R15 __r15
 #define CTX_RIP __rip
+#elif _M_ARM_64
+typedef arm_thread_state64_t SContext;
+#define CTX_REG(x) __x[x]
+#define CTX_SP __sp
+#define CTX_PC __pc
 #else
 #error No context definition for architecture
 #endif
 #elif defined(__APPLE__)
 #include <signal.h>
 typedef _STRUCT_MCONTEXT64 SContext;
+#if _M_X86_64
 #define CTX_RAX __ss.__rax
 #define CTX_RBX __ss.__rbx
 #define CTX_RCX __ss.__rcx
@@ -85,6 +91,13 @@ typedef _STRUCT_MCONTEXT64 SContext;
 #define CTX_R14 __ss.__r14
 #define CTX_R15 __ss.__r15
 #define CTX_RIP __ss.__rip
+#elif _M_ARM_64
+#define CTX_REG(x) __ss.__x[x]
+#define CTX_SP __ss.__sp
+#define CTX_PC __ss.__pc
+#else
+#error No context definition for architecture
+#endif
 #elif defined(__linux__)
 #include <signal.h>
 
