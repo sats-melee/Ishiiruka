@@ -52,7 +52,7 @@ Host& GetHost() { static Host host; return host; }
 
 const wxColour BACKGROUND(16, 17, 22);
 const wxColour SURFACE(25, 27, 34);
-const wxColour TEXT(233, 234, 234);
+const wxColour TEXT_COLOUR(233, 234, 234);
 const wxColour MUTED(166, 170, 181);
 const wxColour BORDER(48, 51, 61);
 const wxColour ACCENT(245, 139, 148);
@@ -61,7 +61,7 @@ const int CONTENT_WIDTH = 304;
 const int MARGIN = 14;
 
 wxStaticText* Label(wxWindow* parent, const wxString& text, int points,
-                    const wxColour& colour = TEXT, bool bold = false, long style = 0)
+                    const wxColour& colour = TEXT_COLOUR, bool bold = false, long style = 0)
 {
     auto* label = new wxStaticText(parent, wxID_ANY, text, wxDefaultPosition, wxDefaultSize, style);
     label->SetForegroundColour(colour);
@@ -107,7 +107,7 @@ public:
         : wxScrolledWindow(parent, wxID_ANY), m_timer(this)
     {
         SetBackgroundColour(BACKGROUND);
-        SetForegroundColour(TEXT);
+        SetForegroundColour(TEXT_COLOUR);
         SetScrollRate(0, 12);
         SetName("Super Sats Bro Melee match funding");
         const char* env = std::getenv("SATS_ARENA_FAKE_LOCAL");
@@ -115,7 +115,7 @@ public:
         SatsArena::GetPaymentGate().Enable(m_enabled);
         m_handle = m_enabled ? GetHost().Get() : nullptr;
         auto* root = new wxBoxSizer(wxVERTICAL);
-        root->Add(Label(this, "Super Sats Bro Melee", 15, TEXT, true),
+        root->Add(Label(this, "Super Sats Bro Melee", 15, TEXT_COLOUR, true),
                   0, wxLEFT | wxRIGHT | wxTOP, MARGIN);
         m_phase = Label(this, "Connecting wallet...", 10, MUTED);
         root->Add(m_phase, 0, wxLEFT | wxRIGHT | wxTOP | wxBOTTOM | wxEXPAND, MARGIN);
@@ -123,7 +123,7 @@ public:
         auto* rules = new wxBoxSizer(wxHORIZONTAL);
         auto* entry_rule = new wxBoxSizer(wxVERTICAL);
         entry_rule->Add(Label(this, "ENTRY / PLAYER", 8, MUTED), 0, wxBOTTOM, 4);
-        m_entry_rule = Label(this, "...", 15, TEXT, true, wxST_ELLIPSIZE_END);
+        m_entry_rule = Label(this, "...", 15, TEXT_COLOUR, true, wxST_ELLIPSIZE_END);
         m_entry_rule->SetMinSize(wxSize(100, -1));
         entry_rule->Add(m_entry_rule, 0, wxEXPAND);
         rules->Add(entry_rule, 1, wxRIGHT, 10);
@@ -150,10 +150,10 @@ public:
             auto* row = new wxPanel(this);
             m_rows[i] = row;
             row->SetBackgroundColour(BACKGROUND);
-            row->SetForegroundColour(TEXT);
+            row->SetForegroundColour(TEXT_COLOUR);
             auto* info = new wxBoxSizer(wxVERTICAL);
             auto* heading = new wxBoxSizer(wxHORIZONTAL);
-            m_player[i] = Label(row, wxString::Format("PLAYER %d • Human", i + 1), 10, TEXT, true, wxST_ELLIPSIZE_END);
+            m_player[i] = Label(row, wxString::Format("PLAYER %d • Human", i + 1), 10, TEXT_COLOUR, true, wxST_ELLIPSIZE_END);
             m_player[i]->SetMinSize(wxSize(80, -1));
             heading->Add(m_player[i], 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
             auto* entry = new wxBoxSizer(wxVERTICAL);
@@ -169,7 +169,7 @@ public:
             m_address[i]->SetMinSize(wxSize(80, -1));
             m_address[i]->SetFont(wxFont(9, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
             m_address[i]->SetBackgroundColour(wxColour(36, 38, 46));
-            m_address[i]->SetForegroundColour(TEXT);
+            m_address[i]->SetForegroundColour(TEXT_COLOUR);
             m_address[i]->SetName(wxString::Format("Player %d Lightning Address", i + 1));
             m_address[i]->Bind(wxEVT_TEXT, [this, i](wxCommandEvent&) {
                 m_addresses_dirty[i] = true;
@@ -204,8 +204,8 @@ public:
                 m_metrics[i]->Add(column, 1, wxEXPAND);
                 return value;
             };
-            m_pot[i] = metric("POT", TEXT);
-            m_paid_out[i] = metric("PAID OUT", TEXT);
+            m_pot[i] = metric("POT", TEXT_COLOUR);
+            m_paid_out[i] = metric("PAID OUT", TEXT_COLOUR);
             m_pending[i] = metric("PENDING", MUTED);
             // Keep the timer with its amount, including network-send time.
             m_pending_delay[i] = Label(row, "", 8, MUTED);
@@ -226,7 +226,7 @@ public:
         root->Add(m_verification_note, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
         m_error = Label(this, "", 9, ACCENT);
         root->Add(m_error, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
-        root->Add(Label(this, "Match activity", 10, TEXT, true), 0, wxLEFT | wxRIGHT | wxBOTTOM, MARGIN);
+        root->Add(Label(this, "Match activity", 10, TEXT_COLOUR, true), 0, wxLEFT | wxRIGHT | wxBOTTOM, MARGIN);
         auto* log_area = new wxPanel(this);
         log_area->SetBackgroundColour(SURFACE);
         auto* log_layout = new wxBoxSizer(wxVERTICAL);
@@ -506,7 +506,7 @@ private:
             }
             m_pot[i]->SetLabel(wxString::Format("%llu sats", static_cast<unsigned long long>(view.remaining_sats[i])));
             m_paid_out[i]->SetLabel(wxString::Format("%llu sats", static_cast<unsigned long long>(view.earned_sats[i])));
-            m_paid_out[i]->SetForegroundColour(view.earned_sats[i] ? GREEN : TEXT);
+            m_paid_out[i]->SetForegroundColour(view.earned_sats[i] ? GREEN : TEXT_COLOUR);
             m_pending[i]->SetLabel(wxString::Format("%llu sats", static_cast<unsigned long long>(view.pending_sats[i])));
             m_pending[i]->SetForegroundColour(view.pending_sats[i] ? ACCENT : MUTED);
             m_pending_delay[i]->SetLabel(view.batch_remaining_ms[i] ? wxString::Format("in %llus", static_cast<unsigned long long>((view.batch_remaining_ms[i] + 999) / 1000)) : wxString("Sending..."));

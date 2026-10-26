@@ -28,7 +28,7 @@ SatsArenaPanel::~SatsArenaPanel() = default;
 namespace
 {
 const wxColour BACKGROUND(16, 20, 25);
-const wxColour TEXT(244, 246, 248);
+const wxColour TEXT_COLOUR(244, 246, 248);
 const wxColour MUTED(142, 152, 165);
 const wxColour BORDER(44, 52, 62);
 const wxColour GREEN(198, 247, 118);
@@ -72,7 +72,7 @@ wxString StateLabel(SatsArena::TrackingState status)
 }
 
 void Label(wxDC& dc, const wxString& text, int x, int y, int points,
-           const wxColour& colour = TEXT, bool bold = false)
+           const wxColour& colour = TEXT_COLOUR, bool bold = false)
 {
 	dc.SetFont(wxFont(points, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL,
 	                   bold ? wxFONTWEIGHT_BOLD : wxFONTWEIGHT_NORMAL));
@@ -95,9 +95,9 @@ void Player(wxDC& dc, int x, int y, int width, int height, int number,
 	Box(dc, x, y, width, height, fill);
 	Box(dc, x + 15, y + 15, 32, 32, fill, accent, 7);
 	Label(dc, wxString::Format("P%d", number), x + 22, y + 23, 9, accent, true);
-	Label(dc, number == 1 ? "Player one" : "Player two", x + 59, y + 15, 11, TEXT, true);
+	Label(dc, number == 1 ? "Player one" : "Player two", x + 59, y + 15, 11, TEXT_COLOUR, true);
 	Label(dc, "Preview balance", x + 59, y + 34, 9, MUTED);
-	Label(dc, "10,000", x + 15, y + (compact ? 51 : 58), compact ? 22 : 25, TEXT, true);
+	Label(dc, "10,000", x + 15, y + (compact ? 51 : 58), compact ? 22 : 25, TEXT_COLOUR, true);
 	const int balance_width = dc.GetTextExtent("10,000").GetWidth();
 	Label(dc, "sats", x + 23 + balance_width, y + (compact ? 65 : 77), 10, MUTED);
 	if (!compact)
@@ -125,7 +125,7 @@ SatsArenaPanel::SatsArenaPanel(wxWindow* parent)
 	m_log = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
 	                       wxTE_MULTILINE | wxTE_READONLY | wxBORDER_NONE);
 	m_log->SetBackgroundColour(wxColour(20, 25, 31));
-	m_log->SetForegroundColour(TEXT);
+	m_log->SetForegroundColour(TEXT_COLOUR);
 	m_log->SetFont(wxFont(9, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 	m_log->SetName("Finalized player damage log");
 	Bind(wxEVT_PAINT, &SatsArenaPanel::OnPaint, this);
@@ -209,14 +209,14 @@ void SatsArenaPanel::OnPaint(wxPaintEvent&)
 	dc.DrawLine(0, 0, 0, layout.height);
 	Box(dc, margin, 22, 32, 36, wxColour(29, 37, 27), wxColour(63, 77, 47), 8);
 	Label(dc, "S", margin + 9, 28, 17, GREEN, true);
-	Label(dc, "SATS ARENA", margin + 44, 23, 12, TEXT, true);
+	Label(dc, "SATS ARENA", margin + 44, 23, 12, TEXT_COLOUR, true);
 	Label(dc, "A little more on the line.", margin + 44, 43, 8, MUTED);
 	Box(dc, width - 91, 26, 71, 22, BACKGROUND, BORDER, 4);
 	Label(dc, "UI PREVIEW", width - 85, 32, 7, MUTED);
 
 	Label(dc, "LOCAL VERSUS", margin, summary_y, 8, MUTED, true);
 	Label(dc, StateLabel(m_snapshot.status), width - 89, summary_y, 8, MUTED);
-	Label(dc, "Every hit counts.", margin, summary_y + 23, compact ? 19 : 23, TEXT, true);
+	Label(dc, "Every hit counts.", margin, summary_y + 23, compact ? 19 : 23, TEXT_COLOUR, true);
 	int y = summary_y + (compact ? 64 : 82);
 	Box(dc, margin, y, content_width, 43, wxColour(23, 29, 35));
 	Label(dc, "Damage rate", margin + 12, y + 15, 9, MUTED);
@@ -229,7 +229,7 @@ void SatsArenaPanel::OnPaint(wxPaintEvent&)
 	y += card_height + 22;
 
 	const int footer_y = layout.footer_y;
-	Label(dc, "Damage log", margin, y, 10, TEXT, true);
+	Label(dc, "Damage log", margin, y, 10, TEXT_COLOUR, true);
 	Label(dc, "AUTO-SCROLL", width - 103, y + 2, 8, MUTED);
 	Label(dc, wxString::Format("%llu credited | showing last %u",
 	                          static_cast<unsigned long long>(m_snapshot.total_credit_events),
@@ -243,7 +243,7 @@ void SatsArenaPanel::OnPaint(wxPaintEvent&)
 	Box(dc, margin + button_width + 10, footer_y, button_width, 36, wxColour(27, 32, 39), BORDER, 7);
 	Label(dc, "Withdraw (soon)", margin + button_width + 25, footer_y + 12, 9, MUTED);
 #endif
-	Label(dc, "Live damage. No real money.", margin, footer_y + 53, 9, TEXT, true);
+	Label(dc, "Live damage. No real money.", margin, footer_y + 53, 9, TEXT_COLOUR, true);
 	Label(dc, m_snapshot.credit_stream_seen ? "Game credits are nominal, not applied %." : "Credit hook: waiting for local match data.",
 	      margin, footer_y + 73, 8, MUTED);
 	Label(dc, "Pots are placeholders. Lightning is offline.", margin, footer_y + 89, 8, MUTED);
