@@ -360,8 +360,8 @@ jobs:
           APP="Ishiiruka/build/Binaries/Slippi Dolphin.app"
           BIN="$APP/Contents/MacOS/Slippi Dolphin"
           mkdir -p "$APP/Contents/Frameworks"
-          # Ship the wallet check tool inside the bundle
-          cp Ishiiruka/build/Source/Core/DolphinWX/sats-arena-wallet-check "$APP/Contents/MacOS/" || true
+          # Ship the wallet check tool inside the bundle (Makefile builds put it in Binaries)
+          cp Ishiiruka/build/Binaries/sats-arena-wallet-check "$APP/Contents/MacOS/"
           for lib in \
             sats-arena/target/release/libsats_arena_local.dylib \
             Ishiiruka/Externals/SlippiRustExtensions/target/release/libslippi_rust_extensions.dylib; do
