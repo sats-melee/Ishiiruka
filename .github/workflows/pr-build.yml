@@ -365,23 +365,24 @@ jobs:
           for lib in \
             sats-arena/target/release/libsats_arena_local.dylib \
             Ishiiruka/Externals/SlippiRustExtensions/target/release/libslippi_rust_extensions.dylib; do
-            [ -f "$lib" ] && cp "$lib" "$APP/Contents/Frameworks/"
+            if [ -f "$lib" ]; then cp "$lib" "$APP/Contents/Frameworks/"; fi
           done
           for exe in "$BIN" "$APP/Contents/MacOS/sats-arena-wallet-check"; do
-            [ -f "$exe" ] || continue
+            if [ ! -f "$exe" ]; then continue; fi
             install_name_tool -add_rpath @executable_path/../Frameworks "$exe" 2>/dev/null || true
             for name in libsats_arena_local libslippi_rust_extensions; do
-              old=$(otool -L "$exe" | grep "$name.dylib" | awk '{print $1}' | head -1)
+              # pipefail-safe: wallet-check does not link the slippi library
+              old=$(otool -L "$exe" | { grep "$name.dylib" || true; } | awk '{print $1}' | head -1)
               if [ -n "$old" ] && [ "$old" != "@rpath/$name.dylib" ]; then
                 install_name_tool -change "$old" "@rpath/$name.dylib" "$exe"
               fi
             done
           done
           for dylib in "$APP/Contents/Frameworks/"*.dylib; do
-            [ -f "$dylib" ] || continue
+            if [ ! -f "$dylib" ]; then continue; fi
             install_name_tool -id "@rpath/$(basename "$dylib")" "$dylib"
           done
-          # Apple Silicon refuses to run unsigned code from quarantined archives; ad-hoc sign everything
+          # Ad-hoc sign the bundle and its nested binaries
           codesign --force --deep --sign - "$APP"
       - name: "Package ${{ matrix.build_type }} Release DMG"
         if: success()
