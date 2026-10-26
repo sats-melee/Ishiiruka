@@ -1121,7 +1121,17 @@ void CFrame::OnKeyDown(wxKeyEvent &event)
 	// the system beep for unhandled key events when
 	// receiving pad/Wiimote keypresses which take an
 	// entirely different path through the HID subsystem.
-#ifndef __APPLE__
+#ifdef __APPLE__
+	// ...but never eat keys bound for a text entry control (Arena sidebar).
+	if (wxWindow* focus = wxWindow::FindFocus())
+	{
+		if (dynamic_cast<wxTextEntry*>(focus))
+		{
+			event.Skip();
+			return;
+		}
+	}
+#else
 	// On other platforms, we leave the key event alone
 	// so it can be passed on to the windowing system.
 	event.Skip();
