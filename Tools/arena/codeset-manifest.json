@@ -7,7 +7,7 @@
   "mode": "local VS diagnostics only",
   "entry": "0x8003EB30",
   "expected_prologue": "7c0802a690010004",
-  "asm_base_commit": "2918fd54c44db726d9f4b656919137e277af8699",
+  "asm_base_commit": "2fab04aa34e25f887015e468ef8c8e7c207cbb66",
   "gecko_commit": "edba7fd9efcd5a4df753aee7a938cb2ff6604690",
   "source_sha256": {
     "Arena/PaymentGate.asm": "aa6095f685d985baffe25377de1c8483127fd647fa10b4cdceb923637be72336",
