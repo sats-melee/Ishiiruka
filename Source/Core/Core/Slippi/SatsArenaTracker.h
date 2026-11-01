@@ -127,6 +127,7 @@ struct GateView
 	std::uint64_t generation = 0;
 	// Funding follows actual roster/scene edits; transient prompt or polling gaps only revoke admission.
 	std::uint64_t lobby_generation = 0;
+	std::uint64_t scene_generation = 0;
 	std::uint64_t start_requests = 0; // Controller edges for non-blocking sidebar navigation.
 };
 class PaymentGate

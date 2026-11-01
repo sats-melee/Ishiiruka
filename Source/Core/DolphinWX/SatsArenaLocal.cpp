@@ -633,7 +633,7 @@ private:
 		const bool roster_matches = SameRoster(view, css);
 		const bool funding = view.phase == 1 || view.phase == 2;
 		const auto now = std::chrono::steady_clock::now();
-		if (funding && css.ready && roster_matches && !view.busy && !m_start_pending) {
+		if (funding && !view.busy && !m_start_pending) {
 			for (int i = 0; i < 4; ++i) {
 				if (!Pays(view, i)) continue;
 				const wxString input = m_address[i]->GetValue();
@@ -725,13 +725,20 @@ private:
 			}
 			else if ((view.phase == 1 || view.phase == 2) && css.ready && !roster_matches)
 			{
-				std::array<std::uint32_t, 4> kinds, teams, characters;
-				for (int i = 0; i < 4; ++i) { kinds[i] = css.kinds[i]; teams[i] = css.team_ids[i]; characters[i] = css.characters[i]; }
-				arena_local_roster(m_handle, css.teams, kinds.data(), teams.data(), characters.data());
-				m_lobby_generation = css.lobby_generation;
+				bool keeps_funding_slots = true;
+				for (int i = 0; i < 4; ++i)
+					if ((view.kinds[i] == 0 && css.kinds[i] == 3) ||
+						(view.paid_sats[i] && (view.kinds[i] != css.kinds[i] ||
+						view.team_ids[i] != css.team_ids[i] || bool(view.teams) != css.teams))) keeps_funding_slots = false;
+				// Other room players may still be choosing or funding their fighters.
+				if (keeps_funding_slots || css.requested) {
+					std::array<std::uint32_t, 4> kinds, teams, characters;
+					for (int i = 0; i < 4; ++i) { kinds[i] = css.kinds[i]; teams[i] = css.team_ids[i]; characters[i] = css.characters[i]; }
+					arena_local_roster(m_handle, css.teams, kinds.data(), teams.data(), characters.data());
+				}
 			}
 			else if ((view.phase == 1 || view.phase == 2) && any_paid &&
-				(!Core::IsRunning() || (m_lobby_generation && m_lobby_generation != css.lobby_generation)))
+				(!Core::IsRunning() || (m_lobby_generation && m_lobby_generation != css.scene_generation)))
 			{
 				Send(8); // Return funded entries before an altered lobby can start.
 			}
@@ -743,8 +750,8 @@ private:
 				m_credit_pending = false;
 				m_start_pending = Send(4);
 			}
-			else if (roster_matches) m_lobby_generation = css.lobby_generation;
 		}
+		if (funding && !any_paid) m_lobby_generation = css.scene_generation;
         const bool show_css = !m_admitted && !m_in_match && (css.kinds[0] < 2 || css.kinds[1] < 2 || css.kinds[2] < 2 || css.kinds[3] < 2);
         wxString phase;
         if (view.phase == 0) phase = "Connecting wallet...";
@@ -799,9 +806,10 @@ private:
         m_wallet_mode->Show(view.phase != 0 && (view.sandbox || view.simulated));
         for (int i = 0; i < 4; ++i)
         {
-            const unsigned kind = show_css ? css.kinds[i] : view.kinds[i];
-            const unsigned team = show_css ? css.team_ids[i] : view.team_ids[i];
-            const bool teams = show_css ? css.teams : bool(view.teams);
+            const bool use_css = show_css && !(funding && view.paid_sats[i]);
+            const unsigned kind = use_css ? css.kinds[i] : view.kinds[i];
+            const unsigned team = use_css ? css.team_ids[i] : view.team_ids[i];
+            const bool teams = use_css ? css.teams : bool(view.teams);
             const bool human = kind == 0;
             const bool financial = human || (view.cpu_wallets && kind == 1);
             const bool paid = view.paid_sats[i] != 0;
@@ -826,12 +834,12 @@ private:
             m_address_display[i]->InvalidateBestSize();
             m_address_display[i]->SetToolTip(m_address[i]->GetValue());
             m_address_display[i]->Show(financial && compact_address);
-            m_edit_address[i]->Show(financial && compact_address && funding && !any_paid && !view.sandbox);
+            m_edit_address[i]->Show(financial && compact_address && funding && !paid && !view.sandbox);
             m_verify[i]->Show(financial && funding && !m_auto_failure[i].empty());
             // Keep focus, selection and caret intact while asynchronous validation runs.
-            m_address[i]->Enable(financial && funding && !any_paid && !view.sandbox);
+            m_address[i]->Enable(financial && funding && !paid && !view.sandbox);
             m_address[i]->SetHint(human ? "Your Lightning address" : "CPU receiving wallet address");
-            m_verify[i]->Enable(funding && roster_matches && !view.busy && !m_address_pending[i]);
+            m_verify[i]->Enable(funding && !view.busy && !m_address_pending[i]);
             wxString verification;
             wxColour colour = MUTED;
             if (!financial) verification = "CPU • no payments";
@@ -846,7 +854,7 @@ private:
             m_verification[i]->Wrap(PLAYER_WIDTH);
             m_verification[i]->SetForegroundColour(colour);
             m_verification[i]->SetToolTip(status == 2 ? "Receiving address verified automatically; reused for up to 30 minutes. No funds sent for verification." : wxString::FromUTF8(view.verification_message[i]));
-            const bool show = financial && css.ready && roster_matches && addresses_saved && !m_admitted && funding;
+            const bool show = financial && !m_addresses_dirty[i] && status == 2 && !m_admitted && funding;
             const wxString invoice = show && !paid && view.invoices[i][0] ? wxString::FromUTF8(view.invoices[i]) : "";
             const bool has_qr = !invoice.empty();
             m_body[i]->ShowItems(financial);
@@ -870,7 +878,7 @@ private:
             m_pending_delay[i]->SetLabel(view.batch_remaining_ms[i] ? wxString::Format("in %llus", static_cast<unsigned long long>((view.batch_remaining_ms[i] + 999) / 1000)) : wxString("Sending..."));
             m_pending_delay[i]->Show(financial && view.pending_sats[i] != 0);
             m_pay[i]->SetToolTip(view.sandbox ? "Pay from this player's Sandbox test wallet" : "Simulate this player's entry payment");
-            m_pay[i]->Show(financial && !paid && (view.simulated || view.sandbox) && funding && addresses_saved);
+            m_pay[i]->Show(financial && !paid && (view.simulated || view.sandbox) && show);
             m_pay[i]->Enable(show && view.phase == 1 && !view.busy && !paid);
             m_rows[i]->SetMinSize(wxSize(-1, m_rows[i]->GetSizer()->CalcMin().y));
             m_rows[i]->Layout();
