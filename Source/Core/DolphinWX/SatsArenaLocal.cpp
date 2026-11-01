@@ -15,6 +15,7 @@
 #include <wx/frame.h>
 #include <wx/hyperlink.h>
 #include <wx/msgdlg.h>
+#include <wx/scrolwin.h>
 #include <wx/sizer.h>
 #include <wx/statbmp.h>
 #include <wx/stattext.h>
@@ -107,12 +108,13 @@ wxBitmap InvoiceQR(const char* invoice)
     return bitmap;
 }
 
-class FundingPanel final : public wxPanel
+class FundingPanel final : public wxScrolledWindow
 {
 public:
     explicit FundingPanel(wxWindow* parent)
-        : wxPanel(parent, wxID_ANY), m_timer(this)
+        : wxScrolledWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL), m_timer(this)
     {
+        SetScrollRate(0, 12);
         SetBackgroundColour(BACKGROUND);
         SetForegroundColour(TEXT);
         SetName("Super Sats Bro Melee match funding");
@@ -129,7 +131,25 @@ public:
         header->Add(m_wallet_mode, 0, wxLEFT | wxALIGN_CENTER_VERTICAL, 6);
         m_wallet_mode->Hide();
         root->Add(header, 0, wxALL | wxEXPAND, MARGIN);
-        m_phone_room = Label(this, "", 10, ACCENT, true);
+        m_phone_join = new wxPanel(this);
+        m_phone_join->SetBackgroundColour(SURFACE);
+        auto* phone_layout = new wxBoxSizer(wxHORIZONTAL);
+        auto* website = new wxBoxSizer(wxVERTICAL);
+        website->Add(Label(m_phone_join, "JOIN ON YOUR PHONE", 8, MUTED, true), 0, wxBOTTOM, 3);
+        m_phone_website = Label(m_phone_join, "", 16, TEXT, true);
+        m_phone_website->SetMinSize(wxSize(240, -1));
+        website->Add(m_phone_website, 0, wxEXPAND);
+        phone_layout->Add(website, 1, wxALL | wxALIGN_CENTER_VERTICAL, 8);
+        auto* room = new wxBoxSizer(wxVERTICAL);
+        room->Add(Label(m_phone_join, "ROOM CODE", 8, MUTED, true), 0, wxBOTTOM, 3);
+        m_phone_code = Label(m_phone_join, "", 26, ACCENT, true);
+        m_phone_code->SetFont(wxFont(26, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
+        room->Add(m_phone_code, 0);
+        phone_layout->Add(room, 0, wxALL | wxALIGN_CENTER_VERTICAL, 8);
+        m_phone_join->SetSizer(phone_layout);
+        root->Add(m_phone_join, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
+        m_phone_join->Hide();
+        m_phone_room = Label(this, "", 9, ACCENT);
         m_phone_room->SetName("Phone room connection");
         root->Add(m_phone_room, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
         m_phone_room->Hide();
@@ -138,22 +158,21 @@ public:
         m_background_payments->Hide();
 
         auto* rules = new wxBoxSizer(wxHORIZONTAL);
-        auto* entry_rule = new wxBoxSizer(wxHORIZONTAL);
-        entry_rule->Add(Label(this, "Entry / player", 8, MUTED), 0, wxRIGHT | wxALIGN_CENTER_VERTICAL, 6);
-        m_entry_rule = Label(this, "...", 10, TEXT, true, wxST_ELLIPSIZE_END);
-        m_entry_rule->SetMinSize(wxSize(100, -1));
+        auto* entry_rule = new wxBoxSizer(wxVERTICAL);
+        entry_rule->Add(Label(this, "ENTRY INVOICE / PLAYER", 8, MUTED, true), 0, wxBOTTOM, 2);
+        m_invoice_rule = Label(this, "...", 18, TEXT, true);
+        m_invoice_rule->SetToolTip("The routing contribution is added to the invoice and retained by the host wallet for fees, including after cancellation. It is separate from the playable pot.");
+        entry_rule->Add(m_invoice_rule, 0, wxEXPAND);
+        m_entry_rule = Label(this, "", 9, MUTED);
         entry_rule->Add(m_entry_rule, 0, wxEXPAND);
         rules->Add(entry_rule, 1, wxRIGHT, 10);
-        auto* rate_rule = new wxBoxSizer(wxHORIZONTAL);
-        rate_rule->Add(Label(this, "Damage", 8, MUTED), 0, wxRIGHT | wxALIGN_CENTER_VERTICAL, 6);
-        m_rate_rule = Label(this, "...", 10, ACCENT, true, wxST_ELLIPSIZE_END);
+        auto* rate_rule = new wxBoxSizer(wxVERTICAL);
+        rate_rule->Add(Label(this, "DAMAGE RATE", 8, MUTED, true), 0, wxBOTTOM, 2);
+        m_rate_rule = Label(this, "...", 14, ACCENT, true, wxST_ELLIPSIZE_END);
         m_rate_rule->SetMinSize(wxSize(100, -1));
         rate_rule->Add(m_rate_rule, 0, wxEXPAND);
         rules->Add(rate_rule, 1);
-        root->Add(rules, 0, wxLEFT | wxRIGHT | wxEXPAND, MARGIN);
-        m_invoice_rule = Label(this, "", 9, MUTED);
-        m_invoice_rule->SetToolTip("The routing contribution is added to the invoice and retained by the host wallet for fees, including after cancellation. It is separate from the playable pot.");
-        root->Add(m_invoice_rule, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
+        root->Add(rules, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
         m_address_warning = Label(this, "", 9, ACCENT);
         root->Add(m_address_warning, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
         m_address_warning->Hide();
@@ -434,6 +453,7 @@ public:
         Bind(wxEVT_TIMER, [this](wxTimerEvent&) { Poll(); });
         m_timer.Start(100);
         Poll();
+        m_refresh_header = true;
     }
 
 	~FundingPanel() override
@@ -508,6 +528,7 @@ private:
 	void LayoutContents()
 	{
 		m_log_window->Show(m_show_activity->GetValue() || m_show_outbound->GetValue() || m_show_missed->GetValue());
+		FitInside();
 		Layout();
 		m_log_window->Layout();
 		m_logs->Layout();
@@ -569,14 +590,38 @@ private:
 		ArenaLocalView view = {};
 		if (!m_handle || !arena_local_snapshot(m_handle, &view)) return;
 		if (view.abi_version != 13) { m_error->SetLabel("Payment engine ABI mismatch"); return; }
+        if (m_refresh_header) {
+            for (auto* child : GetChildren())
+                if (child->IsKindOf(CLASSINFO(wxStaticText))) child->InvalidateBestSize();
+            for (auto* child : m_phone_join->GetChildren()) child->InvalidateBestSize();
+            m_phone_join->InvalidateBestSize();
+            m_phone_join->Layout();
+            Layout();
+            m_refresh_header = false;
+        }
         char room_status[512] = {};
         if (arena_local_room_status(m_handle, room_status, sizeof(room_status))) {
             const auto status = wxString::FromUTF8(room_status);
             if (m_phone_room_status != status) {
                 m_phone_room_status = status;
+                const wxString prefix = "Phone room ";
+                const auto separator = status.Find(" • ");
+                const bool has_room = status.StartsWith(prefix) && separator >= static_cast<int>(prefix.length());
+                const auto code = has_room ? status.Mid(prefix.length(), separator - prefix.length()) : wxString();
+                const auto website = has_room ? status.Mid(separator + 3) : wxString();
+                const bool joined = status.StartsWith(prefix) && code.length() == 6 &&
+                    (website.StartsWith("http://") || website.StartsWith("https://"));
+                m_phone_join->Show(joined);
+                if (joined) {
+                    m_phone_code->SetLabel(code);
+                    m_phone_website->SetLabel(website.StartsWith("http://") ? website.Mid(7) : website);
+                    m_phone_website->SetToolTip(website);
+                    m_phone_website->Wrap(CONTENT_WIDTH - 160);
+                }
                 m_phone_room->SetLabel(status);
                 m_phone_room->Wrap(CONTENT_WIDTH);
-                m_phone_room->Show(!status.empty());
+                m_phone_room->Show(!joined && !status.empty());
+                m_refresh_header = true;
                 Layout();
             }
         }
@@ -794,12 +839,11 @@ private:
         m_address_warning->Show(!warning.empty());
         const wxString entry_rule = view.phase == 0 ? wxString("...") : wxString::Format("%llu sats", static_cast<unsigned long long>(view.entry_sats));
         const wxString rate_rule = view.phase == 0 ? wxString("...") : wxString::Format("%llu %s / 1%%", static_cast<unsigned long long>(view.sats_per_percent), view.sats_per_percent == 1 ? "sat" : "sats");
-        m_entry_rule->SetLabel(entry_rule);
+        m_entry_rule->SetLabel(wxString::Format("%llu into play + %llu fees", static_cast<unsigned long long>(view.entry_sats), static_cast<unsigned long long>(view.surcharge_sats)));
         m_entry_rule->SetToolTip(entry_rule + " per player with a wallet");
         m_rate_rule->SetLabel(rate_rule);
         m_rate_rule->SetToolTip(wxString::Format("%s, paid in %llu-second batches. The remaining pot settles after the match.", rate_rule, static_cast<unsigned long long>(view.batch_window_ms / 1000)));
-        m_invoice_rule->SetLabel(wxString::Format("Invoice: %llu sats • %llu pot + %llu fees", static_cast<unsigned long long>(view.invoice_sats), static_cast<unsigned long long>(view.entry_sats), static_cast<unsigned long long>(view.surcharge_sats)));
-        m_invoice_rule->Wrap(CONTENT_WIDTH);
+        m_invoice_rule->SetLabel(wxString::Format("%llu sats", static_cast<unsigned long long>(view.invoice_sats)));
         m_invoice_rule->Show(view.phase != 0);
         m_wallet_mode->SetLabel(view.sandbox ? "SANDBOX" : "FAKE WALLET");
         m_wallet_mode->SetToolTip("Development wallet: no real bitcoin is transferred.");
@@ -953,6 +997,10 @@ private:
 	wxStaticBitmap* m_qr[4] = {};
 	wxTextCtrl* m_address[4] = {};
 	wxStaticText* m_phone_room = nullptr;
+	wxPanel* m_phone_join = nullptr;
+	wxStaticText* m_phone_website = nullptr;
+	wxStaticText* m_phone_code = nullptr;
+	bool m_refresh_header = false;
 	wxString m_phone_room_status;
 	wxStaticText* m_address_display[4] = {};
 	wxHyperlinkCtrl* m_edit_address[4] = {};
