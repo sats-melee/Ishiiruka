@@ -3,9 +3,9 @@
 #include "DolphinWX/SatsArenaLocal.h"
 #include <wx/sizer.h>
 SatsArenaPanel::SatsArenaPanel(wxWindow* parent)
-    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxSize(350, -1)), m_timer(this)
+    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxSize(480, -1)), m_timer(this)
 {
-    SetMinSize(wxSize(350, -1));
+    SetMinSize(wxSize(480, -1));
     auto* root = new wxBoxSizer(wxVERTICAL);
     m_funding = SatsArenaLocal::CreateSidebar(this);
     root->Add(m_funding, 1, wxEXPAND);

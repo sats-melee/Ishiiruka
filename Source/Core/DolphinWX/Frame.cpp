@@ -467,8 +467,13 @@ CFrame::CFrame(wxFrame *parent, wxWindowID id, const wxString &title, wxRect geo
 
 	// Setup the window size.
 	// This has to be done here instead of in Main because the Show() happens here.
+#ifdef SATS_ARENA_LOCAL
+	SetMinSize(FromDIP(wxSize(1120, 720)));
+	WxUtils::SetWindowSizeAndFitToScreen(this, geometry.GetPosition(), geometry.GetSize(), FromDIP(wxSize(1280, 760)));
+#else
 	SetMinSize(FromDIP(wxSize(400, 300)));
 	WxUtils::SetWindowSizeAndFitToScreen(this, geometry.GetPosition(), geometry.GetSize(), FromDIP(wxSize(800, 600)));
+#endif
 
 	// Start debugging maximized (Must be after the window has been positioned)
 	if (UseDebugger)

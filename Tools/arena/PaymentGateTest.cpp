@@ -28,8 +28,15 @@ int main()
 	query[3] = 1;
 	Check(!gate.Query(query.data(), query.size()), "unpaid start blocked");
 	Check(gate.Read().requested, "start is latched");
+	Check(gate.Read().start_requests == 1, "sidebar sees the controller Start edge");
+	gate.Query(query.data(), query.size());
+	Check(gate.Read().start_requests == 1, "holding Start is one sidebar request");
 	query[3] = 0;
 	Check(!gate.Query(query.data(), query.size()), "latched start remains unpaid");
+	query[3] = 1;
+	gate.Query(query.data(), query.size());
+	Check(gate.Read().start_requests == 2, "another Start press is visible even while admission is latched");
+	query[3] = 0;
 	Check(gate.Authorize(current_ready), "worker acknowledgement grants current selection");
 	Check(gate.Query(query.data(), query.size()), "paid start continues without another press");
 	std::this_thread::sleep_for(std::chrono::milliseconds(550));

@@ -17,8 +17,10 @@ class SatsArenaPanel final : public wxPanel
 public:
 	explicit SatsArenaPanel(wxWindow* parent);
 	~SatsArenaPanel() override;
+#ifndef SATS_ARENA_LOCAL
 	bool AcceptsFocus() const override { return false; }
 	bool AcceptsFocusFromKeyboard() const override { return false; }
+#endif
 
 private:
 	void OnPaint(wxPaintEvent& event);

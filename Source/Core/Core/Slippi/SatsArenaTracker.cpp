@@ -407,9 +407,12 @@ bool PaymentGate::Query(const std::uint8_t* packet, std::size_t length)
 	auto invalidate = [this]() {
 		const auto next = m_view.generation + 1;
 		const auto next_lobby = m_view.lobby_generation + 1;
+		const auto starts = m_view.start_requests;
 		m_view = {};
 		m_view.generation = next;
 		m_view.lobby_generation = next_lobby;
+		m_view.start_requests = starts;
+		m_start_down = false;
 		m_selection = {};
 		return false;
 	};
@@ -424,8 +427,11 @@ bool PaymentGate::Query(const std::uint8_t* packet, std::size_t length)
 		++m_view.generation;
 		m_view.requested = false;
 		m_view.authorized = false;
+		m_start_down = false;
 	}
 	m_last_query = now;
+	if (packet[3] && !m_start_down) ++m_view.start_requests;
+	m_start_down = packet[3] != 0;
 	bool roster_valid = true;
 	int participants = 0;
 	unsigned sides = 0;
@@ -502,9 +508,12 @@ void PaymentGate::Reset()
 	std::lock_guard<std::mutex> lock(m_mutex);
 	const auto next = m_view.generation + 1;
 	const auto next_lobby = m_view.lobby_generation + 1;
+	const auto starts = m_view.start_requests;
 	m_view = {};
 	m_view.generation = next;
 	m_view.lobby_generation = next_lobby;
+	m_view.start_requests = starts;
+	m_start_down = false;
 	m_selection = {};
 }
 void PaymentGate::Enable(bool enabled)
