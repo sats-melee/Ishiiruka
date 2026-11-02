@@ -11,6 +11,7 @@
 #include <cstring>
 #include <wx/button.h>
 #include <wx/checkbox.h>
+#include <wx/dcbuffer.h>
 #include <wx/dcmemory.h>
 #include <wx/frame.h>
 #include <wx/hyperlink.h>
@@ -55,13 +56,16 @@ struct Host
 };
 Host& GetHost() { static Host host; return host; }
 
-const wxColour BACKGROUND(16, 17, 22);
-const wxColour SURFACE(25, 27, 34);
-const wxColour TEXT(233, 234, 234);
-const wxColour MUTED(166, 170, 181);
-const wxColour BORDER(48, 51, 61);
-const wxColour ACCENT(245, 139, 148);
+const wxColour BACKGROUND(14, 20, 30);
+const wxColour SURFACE(27, 36, 51);
+const wxColour TEXT(241, 243, 247);
+const wxColour MUTED(161, 173, 191);
+const wxColour BORDER(77, 91, 113);
+const wxColour ACCENT(248, 115, 102);
+const wxColour GOLD(255, 204, 72);
 const wxColour GREEN(143, 209, 166);
+const std::array<wxColour, 4> PLAYER_COLOURS = {{ACCENT, wxColour(117, 167, 248), GOLD, wxColour(117, 216, 139)}};
+const std::array<wxColour, 3> TEAM_COLOURS = {{PLAYER_COLOURS[0], PLAYER_COLOURS[1], PLAYER_COLOURS[3]}};
 const int CONTENT_WIDTH = 460;
 const int PLAYER_WIDTH = 224;
 const int MARGIN = 6;
@@ -73,6 +77,14 @@ wxStaticText* Label(wxWindow* parent, const wxString& text, int points,
     label->SetForegroundColour(colour);
     label->SetFont(wxFont(points, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL,
                          bold ? wxFONTWEIGHT_BOLD : wxFONTWEIGHT_NORMAL));
+    return label;
+}
+wxStaticText* Heading(wxWindow* parent, const wxString& text, int points,
+                      const wxColour& colour = TEXT, long style = 0)
+{
+    auto* label = Label(parent, text, points, colour, true, style);
+    label->SetFont(wxFont(points, wxFONTFAMILY_SWISS, wxFONTSTYLE_SLANT,
+                         wxFONTWEIGHT_HEAVY, false, "DejaVu Sans Condensed"));
     return label;
 }
 wxPanel* Divider(wxWindow* parent)
@@ -118,13 +130,16 @@ public:
         SetBackgroundColour(BACKGROUND);
         SetForegroundColour(TEXT);
         SetName("Super Sats Bro Melee match funding");
+#if wxUSE_PRIVATE_FONTS
+        wxFont::AddPrivateFont(wxString::FromUTF8((File::GetSysDirectory() + "SatsArena/DejaVuSansCondensed-BoldOblique.ttf").c_str()));
+#endif
         const char* env = std::getenv("SATS_ARENA_FAKE_LOCAL");
         m_enabled = !env || std::strcmp(env, "0") != 0;
         SatsArena::GetPaymentGate().Enable(m_enabled);
         m_handle = m_enabled ? GetHost().Get() : nullptr;
         auto* root = new wxBoxSizer(wxVERTICAL);
         auto* header = new wxBoxSizer(wxHORIZONTAL);
-        header->Add(Label(this, "Sats Melee", 12, TEXT, true), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, MARGIN);
+        header->Add(Heading(this, "SATS MELEE", 14, GOLD), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, MARGIN);
         m_phase = Label(this, "Connecting wallet...", 10, MUTED);
         header->Add(m_phase, 1, wxALIGN_CENTER_VERTICAL);
         m_wallet_mode = Label(this, "", 8, ACCENT);
@@ -133,16 +148,31 @@ public:
         root->Add(header, 0, wxALL | wxEXPAND, MARGIN);
         m_phone_join = new wxPanel(this);
         m_phone_join->SetBackgroundColour(SURFACE);
+        m_phone_join->SetBackgroundStyle(wxBG_STYLE_PAINT);
+        m_phone_join->Bind(wxEVT_PAINT, [this](wxPaintEvent&) {
+            wxAutoBufferedPaintDC dc(m_phone_join);
+            dc.SetBackground(wxBrush(SURFACE));
+            dc.Clear();
+            const auto size = m_phone_join->GetClientSize();
+            dc.SetBrush(*wxTRANSPARENT_BRUSH);
+            dc.SetPen(wxPen(BORDER));
+            dc.DrawRectangle(0, 0, size.x, size.y);
+            dc.SetPen(wxPen(GOLD, 2));
+            dc.DrawLine(0, 0, size.x - 14, 0);
+            dc.DrawLine(size.x - 14, 0, size.x - 1, 13);
+            dc.SetPen(wxPen(ACCENT, 2));
+            dc.DrawLine(0, size.y - 1, size.x / 3, size.y - 1);
+        });
         auto* phone_layout = new wxBoxSizer(wxHORIZONTAL);
         auto* website = new wxBoxSizer(wxVERTICAL);
-        website->Add(Label(m_phone_join, "JOIN ON YOUR PHONE", 8, MUTED, true), 0, wxBOTTOM, 3);
+        website->Add(Heading(m_phone_join, "JOIN ON YOUR PHONE", 9, MUTED), 0, wxBOTTOM, 3);
         m_phone_website = Label(m_phone_join, "", 16, TEXT, true);
         m_phone_website->SetMinSize(wxSize(240, -1));
         website->Add(m_phone_website, 0, wxEXPAND);
         phone_layout->Add(website, 1, wxALL | wxALIGN_CENTER_VERTICAL, 8);
         auto* room = new wxBoxSizer(wxVERTICAL);
-        room->Add(Label(m_phone_join, "ROOM CODE", 8, MUTED, true), 0, wxBOTTOM, 3);
-        m_phone_code = Label(m_phone_join, "", 26, ACCENT, true);
+        room->Add(Heading(m_phone_join, "ROOM CODE", 9, GOLD), 0, wxBOTTOM, 3);
+        m_phone_code = Label(m_phone_join, "", 26, GOLD, true);
         m_phone_code->SetFont(wxFont(26, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
         room->Add(m_phone_code, 0);
         phone_layout->Add(room, 0, wxALL | wxALIGN_CENTER_VERTICAL, 8);
@@ -159,16 +189,16 @@ public:
 
         auto* rules = new wxBoxSizer(wxHORIZONTAL);
         auto* entry_rule = new wxBoxSizer(wxVERTICAL);
-        entry_rule->Add(Label(this, "ENTRY INVOICE / PLAYER", 8, MUTED, true), 0, wxBOTTOM, 2);
-        m_invoice_rule = Label(this, "...", 18, TEXT, true);
+        entry_rule->Add(Heading(this, "ENTRY INVOICE / PLAYER", 8, MUTED), 0, wxBOTTOM, 2);
+        m_invoice_rule = Heading(this, "...", 20, GOLD);
         m_invoice_rule->SetToolTip("The routing contribution is added to the invoice and retained by the host wallet for fees, including after cancellation. It is separate from the playable pot.");
         entry_rule->Add(m_invoice_rule, 0, wxEXPAND);
         m_entry_rule = Label(this, "", 9, MUTED);
         entry_rule->Add(m_entry_rule, 0, wxEXPAND);
         rules->Add(entry_rule, 1, wxRIGHT, 10);
         auto* rate_rule = new wxBoxSizer(wxVERTICAL);
-        rate_rule->Add(Label(this, "DAMAGE RATE", 8, MUTED, true), 0, wxBOTTOM, 2);
-        m_rate_rule = Label(this, "...", 14, ACCENT, true, wxST_ELLIPSIZE_END);
+        rate_rule->Add(Heading(this, "DAMAGE RATE", 8, MUTED), 0, wxBOTTOM, 2);
+        m_rate_rule = Heading(this, "...", 14, TEXT, wxST_ELLIPSIZE_END);
         m_rate_rule->SetMinSize(wxSize(100, -1));
         rate_rule->Add(m_rate_rule, 0, wxEXPAND);
         rules->Add(rate_rule, 1);
@@ -180,7 +210,7 @@ public:
 
         m_summary = new wxPanel(this);
         auto* summary_layout = new wxBoxSizer(wxVERTICAL);
-        m_summary_title = Label(m_summary, "Last match", 14, TEXT, true);
+        m_summary_title = Heading(m_summary, "Last match", 14, GOLD);
         summary_layout->Add(m_summary_title, 0, wxBOTTOM | wxEXPAND, 12);
         summary_layout->Add(Label(m_summary, "Damage dealt (%)", 10, TEXT, true), 0, wxBOTTOM | wxEXPAND, 12);
         m_summary_grid = new wxPanel(m_summary);
@@ -205,10 +235,10 @@ public:
             row->SetForegroundColour(TEXT);
             auto* info = new wxBoxSizer(wxVERTICAL);
             auto* heading = new wxBoxSizer(wxHORIZONTAL);
-            m_player[i] = Label(row, wxString::Format("PLAYER %d • Human", i + 1), 10, TEXT, true, wxST_ELLIPSIZE_END);
+            m_player[i] = Heading(row, wxString::Format("PLAYER %d • Human", i + 1), 10, PLAYER_COLOURS[i], wxST_ELLIPSIZE_END);
             m_player[i]->SetMinSize(wxSize(80, -1));
             heading->Add(m_player[i], 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
-            m_entry_status[i] = Label(row, "UNPAID", 10, ACCENT, true);
+            m_entry_status[i] = Heading(row, "UNPAID", 9, ACCENT);
             heading->Add(m_entry_status[i], 0, wxALIGN_CENTER_VERTICAL);
             info->Add(heading, 0, wxEXPAND | wxBOTTOM, 3);
 
@@ -283,7 +313,7 @@ public:
             auto metric = [&](const char* caption, const wxColour& colour) {
                 auto* column = new wxBoxSizer(wxVERTICAL);
                 column->Add(Label(row, caption, 8, MUTED), 0, wxBOTTOM, 3);
-                auto* value = Label(row, "0 sats", 10, colour, true, wxST_ELLIPSIZE_END);
+                auto* value = Heading(row, "0 sats", 10, colour, wxST_ELLIPSIZE_END);
                 value->SetMinSize(wxSize(68, -1));
                 column->Add(value, 0, wxEXPAND);
                 m_metrics[i]->Add(column, 1, wxEXPAND);
@@ -868,6 +898,7 @@ private:
             wxString label = wxString::Format("PLAYER %d • %s", i + 1, human ? "Human" : "CPU");
             if (teams && team < 3) label = wxString::Format(human ? "PLAYER %d • %s Team" : "PLAYER %d • CPU • %s", i + 1, TeamName(team));
             m_player[i]->SetLabel(label);
+            m_player[i]->SetForegroundColour(teams && team < 3 ? TEAM_COLOURS[team] : PLAYER_COLOURS[i]);
             m_entry_status[i]->SetLabel(!financial ? "NO ENTRY" : (paid ? "PAID" : "UNPAID"));
             m_entry_status[i]->SetForegroundColour(!financial ? MUTED : (paid ? GREEN : ACCENT));
             m_entry_status[i]->SetToolTip(financial ? wxString::Format("%s: %llu sats", paid ? "Entry received" : "Entry to pay", static_cast<unsigned long long>(view.invoice_sats)) : "CPU wallets are disabled for this match");
