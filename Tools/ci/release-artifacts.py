@@ -35,7 +35,7 @@ def artifact_ids(repo, run):
     return ','.join(chosen)
 
 
-def resolve(repo, sha, run_id=None, wait=1800):
+def resolve(repo, sha, run_id=None, wait=3600):
     workflow_id = api(f'repos/{repo}/actions/workflows/pr-build.yml')['id']
     deadline = time.monotonic() + wait
     while True:
@@ -98,7 +98,7 @@ def main():
     source.add_argument('--tag', required=True)
     source.add_argument('--repo', default=os.environ.get('GITHUB_REPOSITORY', 'sats-melee/Ishiiruka'))
     source.add_argument('--run-id', type=int)
-    source.add_argument('--wait', type=int, default=1800)
+    source.add_argument('--wait', type=int, default=3600)
     collect = sub.add_parser('stage')
     collect.add_argument('--downloads', type=Path, required=True)
     collect.add_argument('--output', type=Path, required=True)

@@ -96,7 +96,7 @@ class SelectionTests(unittest.TestCase):
         result, _ = self.resolve([run()], available)
         self.assertEqual(result['artifact_ids'], '201,202,203')
 
-    def test_waits_for_in_progress_build_to_finish(self):
+    def test_default_wait_allows_build_beyond_thirty_minutes_then_success(self):
         replies = iter([{'workflow_runs': [run(status='in_progress', conclusion=None)]},
                         {'workflow_runs': [run()]}])
 
@@ -107,8 +107,20 @@ class SelectionTests(unittest.TestCase):
 
         with patch.object(release, 'api', side_effect=api), \
              patch.object(release.time, 'sleep') as sleep, \
-             patch.object(release.time, 'monotonic', return_value=0):
-            self.assertEqual(release.resolve(REPO, SHA, wait=30)['run_id'], '100')
+             patch.object(release.time, 'monotonic', side_effect=[0, 1866]):
+            self.assertEqual(release.resolve(REPO, SHA)['run_id'], '100')
+            sleep.assert_called_once_with(10)
+
+    def test_pending_build_wait_is_bounded_by_the_deadline(self):
+        def api(path):
+            if path.endswith('/actions/workflows/pr-build.yml'): return {'id': 77}
+            return {'workflow_runs': [run(status='in_progress', conclusion=None)]}
+
+        with patch.object(release, 'api', side_effect=api), \
+             patch.object(release.time, 'sleep') as sleep, \
+             patch.object(release.time, 'monotonic', side_effect=[100, 104, 105]):
+            with self.assertRaisesRegex(ValueError, 'No successful build'):
+                release.resolve(REPO, SHA, wait=5)
             sleep.assert_called_once_with(10)
 
 
@@ -156,7 +168,7 @@ class TagTests(unittest.TestCase):
                  patch.dict(os.environ, {'GITHUB_OUTPUT': str(output), 'GITHUB_REPOSITORY': REPO}), \
                  contextlib.redirect_stdout(io.StringIO()) as console:
                 release.main()
-            resolve.assert_called_once_with(REPO, tagged, None, 1800)
+            resolve.assert_called_once_with(REPO, tagged, None, 3600)
             self.assertEqual(json.loads(console.getvalue())['version'], VERSION)
             self.assertIn('version=1.2.3\n', output.read_text())
             self.assertIn('sha=' + tagged + '\n', output.read_text())
