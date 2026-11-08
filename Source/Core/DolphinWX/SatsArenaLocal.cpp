@@ -1,5 +1,6 @@
 // Copyright 2026 Sats Arena contributors. Licensed under GPLv2+.
 #include "DolphinWX/SatsArenaLocal.h"
+#include "DolphinWX/SatsArenaLocalLayout.h"
 
 #include <algorithm>
 #include <functional>
@@ -12,6 +13,7 @@
 #include <cstring>
 #include <wx/button.h>
 #include <wx/checkbox.h>
+#include <wx/choice.h>
 #include <wx/dcbuffer.h>
 #include <wx/dcmemory.h>
 #include <wx/frame.h>
@@ -28,7 +30,10 @@
 #include "Common/FileUtil.h"
 #include "Core/Core.h"
 #include "Core/Slippi/SatsArenaTracker.h"
-#include "DolphinWX/QR/qrcodegen.hpp"
+#include "Core/Slippi/SatsArenaNetplayRoom.h"
+#include "Core/Slippi/SatsArenaRoomClient.h"
+#include "DolphinWX/SatsArenaRoomView.h"
+#include "DolphinWX/SatsArenaWidgets.h"
 #include "sats_arena_local.h"
 static_assert(sizeof(ArenaLocalView) == 19144, "Arena local ABI layout mismatch");
 
@@ -97,37 +102,14 @@ wxPanel* Divider(wxWindow* parent)
     line->SetMinSize(wxSize(-1, 1));
     return line;
 }
-wxBitmap InvoiceQR(const char* invoice)
-{
-    if (!invoice || !*invoice) return wxBitmap(1, 1);
-    // BOLT11 accepts uppercase, which uses fewer QR modules and keeps them legible.
-    const auto qr_text = wxString::FromUTF8(invoice).Upper();
-    const auto qr = qrcodegen::QrCode::encodeText(qr_text.utf8_str().data(), qrcodegen::QrCode::Ecc::MEDIUM);
-    const int modules = qr.getSize();
-    const int quiet = 4;
-    const int scale = std::max(1, 148 / (modules + quiet * 2));
-    // Use an exact module grid: only the required four-module quiet zone,
-    // with no leftover white padding or blurry fractional scaling.
-    const int size = (modules + quiet * 2) * scale;
-    wxBitmap bitmap(size, size);
-    wxMemoryDC dc(bitmap);
-    dc.SetBackground(*wxWHITE_BRUSH);
-    dc.Clear();
-    dc.SetPen(*wxTRANSPARENT_PEN);
-    dc.SetBrush(*wxBLACK_BRUSH);
-    for (int y = 0; y < modules; ++y)
-        for (int x = 0; x < modules; ++x)
-            if (qr.getModule(x, y))
-                dc.DrawRectangle((quiet + x) * scale, (quiet + y) * scale, scale, scale);
-    dc.SelectObject(wxNullBitmap);
-    return bitmap;
-}
+using SatsArenaWidgets::InvoiceQR;
 
 class FundingPanel final : public wxScrolledWindow
 {
 public:
-    explicit FundingPanel(wxWindow* parent)
-        : wxScrolledWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL), m_timer(this)
+    explicit FundingPanel(wxWindow* parent, ViewCallback view)
+        : wxScrolledWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL),
+          m_timer(this), m_view_callback(std::move(view))
     {
         SetScrollRate(0, 12);
         SetBackgroundColour(BACKGROUND);
@@ -137,7 +119,8 @@ public:
         wxFont::AddPrivateFont(wxString::FromUTF8((File::GetSysDirectory() + "SatsArena/DejaVuSansCondensed-BoldOblique.ttf").c_str()));
 #endif
         const char* env = std::getenv("SATS_ARENA_FAKE_LOCAL");
-        m_enabled = !env || std::strcmp(env, "0") != 0;
+        m_remote = SatsArenaNetplay::ServerEnabled();
+        m_enabled = !SatsArenaNetplay::Enabled() && (!env || std::strcmp(env, "0") != 0);
         SatsArena::GetPaymentGate().Enable(m_enabled);
         m_handle = m_enabled ? GetHost().Get() : nullptr;
         auto* root = new wxBoxSizer(wxVERTICAL);
@@ -149,6 +132,43 @@ public:
         header->Add(m_wallet_mode, 0, wxLEFT | wxALIGN_CENTER_VERTICAL, 6);
         m_wallet_mode->Hide();
         root->Add(header, 0, wxALL | wxEXPAND, MARGIN);
+        if (m_remote) {
+            m_room_options = new wxPanel(this);
+            auto* options = new wxBoxSizer(wxVERTICAL);
+            options->Add(Heading(m_room_options, "CREATE ROOM OPTIONS", 9, MUTED), 0, wxBOTTOM, 4);
+            auto* settings = new wxBoxSizer(wxHORIZONTAL);
+            settings->Add(Label(m_room_options, "Players", 9), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+            m_room_count = new wxChoice(m_room_options, wxID_ANY);
+            m_room_count->Append("2"); m_room_count->Append("3"); m_room_count->Append("4");
+            m_room_count->SetName("Room player count");
+            settings->Add(m_room_count, 0, wxRIGHT, 12);
+            m_room_mode = new wxChoice(m_room_options, wxID_ANY);
+            m_room_mode->Append("Free-for-all"); m_room_mode->Append("Teams");
+            m_room_mode->SetName("Room mode");
+            settings->Add(m_room_mode, 1);
+            options->Add(settings, 0, wxEXPAND | wxBOTTOM, 4);
+            auto* teams = new wxBoxSizer(wxHORIZONTAL);
+            for (int i = 0; i < 4; ++i) {
+                auto* box = new wxBoxSizer(wxVERTICAL);
+                m_room_team_labels[i] = Label(m_room_options, wxString::Format("PLAYER %d", i + 1), 8, PLAYER_COLOURS[i]);
+                box->Add(m_room_team_labels[i], 0);
+                m_room_teams[i] = new wxChoice(m_room_options, wxID_ANY);
+                m_room_teams[i]->Append("Red"); m_room_teams[i]->Append("Blue"); m_room_teams[i]->Append("Green");
+                m_room_teams[i]->SetName(wxString::Format("Player %d room team", i + 1));
+                m_room_teams[i]->SetSelection(i % 2);
+                box->Add(m_room_teams[i], 0, wxEXPAND);
+                teams->Add(box, 1, i < 3 ? wxRIGHT : 0, 6);
+                m_room_teams[i]->Bind(wxEVT_CHOICE, std::function<void(wxCommandEvent&)>([this](wxCommandEvent&) { SaveRoomConfig(); }));
+            }
+            options->Add(teams, 0, wxEXPAND);
+            m_room_config_note = Label(m_room_options, "Choose before creating; joining uses the host's rules.", 8, MUTED);
+            options->Add(m_room_config_note, 0, wxTOP | wxEXPAND, 4);
+            m_room_options->SetSizer(options);
+            root->Add(m_room_options, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
+            m_room_count->Bind(wxEVT_CHOICE, std::function<void(wxCommandEvent&)>([this](wxCommandEvent&) { SaveRoomConfig(); }));
+            m_room_mode->Bind(wxEVT_CHOICE, std::function<void(wxCommandEvent&)>([this](wxCommandEvent&) { SaveRoomConfig(); }));
+            ShowRoomConfig(SatsArenaRoomClient::CreateConfig());
+        }
         m_phone_join = new wxPanel(this);
         m_phone_join->SetBackgroundColour(SURFACE);
         m_phone_join->SetBackgroundStyle(wxBG_STYLE_PAINT);
@@ -357,7 +377,7 @@ public:
         log_toggles->Add(m_show_outbound, 0, wxRIGHT, 8);
         m_show_missed = new wxCheckBox(this, wxID_ANY, "Missed");
         m_show_missed->SetForegroundColour(TEXT_COLOUR);
-        m_show_missed->SetToolTip("Amounts still owed, receiving addresses, and which payments are safe to request after the match.");
+        m_show_missed->SetToolTip("Amounts still owed, automatic settlement status, and payments needing Retry now.");
         log_toggles->Add(m_show_missed, 0);
         m_last_match = new wxToggleButton(this, wxID_ANY, "Last match", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
         m_last_match->SetFont(wxFont(8, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
@@ -382,15 +402,15 @@ public:
             confirm.SetYesNoLabels("Discard unsent", "Keep payments");
             if (confirm.ShowModal() == wxID_YES) Send(14);
         }));
-        m_pay_missed = new wxButton(this, wxID_ANY, "Pay missed payments");
+        m_pay_missed = new wxButton(this, wxID_ANY, "Retry now");
         m_pay_missed->Enable(false);
-        m_pay_missed->SetToolTip("After match end, combine safe missed amounts by address. Unknown original sends are checked separately and never paid twice.");
+        m_pay_missed->SetToolTip("Resume settlement after automatic retries pause. Unknown original sends keep their original hash.");
         m_pay_missed->Bind(wxEVT_BUTTON, std::function<void(wxCommandEvent&)>([this](wxCommandEvent&) {
             wxMessageDialog confirm(this,
-                wxString::Format("Pay %llu sats in missed payments?\n\nSafe amounts from finished matches are combined by receiving address. Unconfirmed original sends are excluded. Routing fees follow your wallet policy.",
+                wxString::Format("Retry settlement of %llu sats?\n\nResume automatic settlement for safe amounts from finished matches. Unconfirmed original sends are excluded. Routing fees follow your wallet policy.",
                     static_cast<unsigned long long>(m_payable_missed_sats)),
-                "Pay missed payments", wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION);
-            confirm.SetYesNoLabels("Pay missed", "Cancel");
+                "Retry settlement", wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION);
+            confirm.SetYesNoLabels("Retry payouts", "Cancel");
             if (confirm.ShowModal() == wxID_YES) Send(16);
         }));
         auto* payment_actions = new wxBoxSizer(wxHORIZONTAL);
@@ -454,7 +474,7 @@ public:
             m_show_outbound->SetValue(false);
             m_show_missed->SetValue(false);
             m_missed_area->Hide();
-            arena_local_outbound_debug(m_handle, false);
+            if (m_handle) arena_local_outbound_debug(m_handle, false);
             m_log_area->Hide();
             m_outbound_area->Hide();
             LayoutContents();
@@ -466,7 +486,7 @@ public:
         }));
         m_show_outbound->Bind(wxEVT_CHECKBOX, std::function<void(wxCommandEvent&)>([this](wxCommandEvent&) {
             const bool show = m_show_outbound->GetValue();
-            arena_local_outbound_debug(m_handle, show);
+            if (m_handle) arena_local_outbound_debug(m_handle, show);
             m_outbound_area->Show(show);
             m_outbound_refreshed = {};
             if (show) UpdateOutbound();
@@ -476,6 +496,12 @@ public:
             m_missed_area->Show(m_show_missed->GetValue());
             LayoutContents();
         }));
+        if (m_remote) {
+            m_discard->Hide();
+            m_pay_missed->Hide();
+            m_show_outbound->Hide();
+            m_show_missed->Hide();
+        }
         SetSizer(root);
         Bind(wxEVT_CHAR_HOOK, std::function<void(wxKeyEvent&)>([this](wxKeyEvent& event) {
             if (event.GetKeyCode() == WXK_ESCAPE && m_summary->IsShown()) {
@@ -492,11 +518,37 @@ public:
 	~FundingPanel() override
 	{
 		m_timer.Stop();
-		arena_local_outbound_debug(m_handle, false);
+		if (m_handle) arena_local_outbound_debug(m_handle, false);
 		m_log_window->Destroy();
 	}
 
+    void NextSetup()
+    {
+        if (!m_admitted && !m_in_match) m_next_setup_requested = true;
+    }
+
+    void FocusPlayer(int player)
+    {
+        m_summary_manual = player < 0 && m_summary_available && !m_admitted && !m_in_match;
+        m_summary_auto = false;
+        LayoutSummary();
+        if (player >= 0 && player < 4 && m_rows[player]->IsShown())
+        {
+            const auto point = CalcUnscrolledPosition(ScreenToClient(m_rows[player]->ClientToScreen(wxPoint(0, 0))));
+            Scroll(0, std::max(0, point.y / 12));
+            m_rows[player]->SetFocus();
+        }
+    }
+
 private:
+    void PublishView(const ArenaLocalView& view)
+    {
+        if (!m_view_callback) return;
+        const bool attention = view.phase == 7 || view.error[0] || view.payment_error[0] ||
+            view.background_failed_sats || view.payable_missed_sats || m_capture_failed;
+        m_view_callback(view, m_strip, m_phase->GetLabel(), attention);
+    }
+
     void BuildSummary(const ArenaLocalView& view)
     {
         wxString title = "No contest";
@@ -617,8 +669,151 @@ private:
 	{
 		return view.kinds[player] == 0 || (view.cpu_wallets && view.kinds[player] == 1);
 	}
+    void ResetRemote()
+    {
+        for (int i = 0; i < 4; ++i) {
+            m_address[i]->ChangeValue("");
+            m_addresses_dirty[i] = m_address_pending[i] = m_editing_address[i] = false;
+            m_address_submitted[i].clear();
+            m_auto_attempted[i].clear();
+            m_auto_failure[i].clear();
+        }
+        m_summary_id.clear();
+        m_summary_manual = m_summary_auto = m_summary_available = false;
+    }
+
+    void ShowRoomConfig(const SatsArenaNetplay::Config& config)
+    {
+        const auto value = SatsArenaNetplay::ConfigJson(config);
+        if (value == m_room_display_config) return;
+        m_room_display_config = value;
+        m_room_count->SetSelection(config.player_count - 2);
+        m_room_mode->SetSelection(config.teams ? 1 : 0);
+        for (unsigned i = 0; i < 4; ++i) {
+            const bool show = config.teams && i < config.player_count;
+            m_room_teams[i]->Show(show);
+            m_room_team_labels[i]->Show(show);
+            if (show) m_room_teams[i]->SetSelection(config.team_ids[i]);
+        }
+        m_room_options->Layout();
+        Layout();
+        FitInside();
+    }
+
+    void SaveRoomConfig()
+    {
+        SatsArenaNetplay::Config config;
+        config.player_count = m_room_count->GetSelection() + 2;
+        config.teams = m_room_mode->GetSelection() == 1;
+        for (unsigned i = 0; i < config.player_count; ++i)
+            if (config.teams) config.team_ids[i] = m_room_teams[i]->GetSelection();
+        const bool saved = SatsArenaRoomClient::SetCreateConfig(config);
+        m_room_config_note->SetLabel(saved ? "Choose before creating; joining uses the host's rules." :
+            "Teams need at least two colors. Options are fixed while in a room.");
+        m_room_display_config = nullptr;
+        ShowRoomConfig(saved ? config : SatsArenaRoomClient::CreateConfig());
+    }
+
+    void PollRemote()
+    {
+        const auto client = SatsArenaRoomClient::Active();
+        m_room_options->Enable(!client);
+        if (m_room_options->Show(!client)) { Layout(); FitInside(); }
+        ShowRoomConfig(client ? client->GetConfig() : SatsArenaRoomClient::CreateConfig());
+        if (client != m_remote_client.lock() || (!client && m_remote_slot != -1)) {
+            ResetRemote();
+            m_remote_client = client;
+        }
+        m_remote_slot = client ? client->LocalSlot() : -1;
+        if (m_remote_slot < 0 || m_remote_slot > 3) m_remote_slot = -1;
+        m_remote_notice.clear();
+        ArenaLocalView view = {};
+        std::fill(std::begin(view.kinds), std::end(view.kinds), 3);
+        SatsArenaNetplay::Room room;
+        std::string error;
+        if (client && client->Poll(room, error) == SatsArenaRoomClient::Status::Failed) {
+            ResetRemote();
+            m_phone_room->Hide();
+            view.phase = 7;
+            const auto message = error.empty() ? std::string("Room connection failed") : error;
+            std::memcpy(view.error, message.data(), std::min(message.size(), sizeof(view.error) - 1));
+            RenderView(view, false, false, true);
+            return;
+        }
+        const auto code = client ? client->GetRoomCode() : std::string();
+        const auto config = client ? client->GetConfig() : SatsArenaNetplay::Config();
+        m_phone_room->SetLabel(code.empty() ? wxString() : wxString::Format("Room %s • %u players • %s • You: P%d",
+            wxString::FromUTF8(code.c_str()), config.player_count, config.teams ? "Teams" : "FFA", m_remote_slot + 1));
+        m_phone_room->Show(!code.empty() && m_remote_slot >= 0);
+        const auto payment = client ? client->PaymentView() : nlohmann::json(nullptr);
+        if (payment.is_null()) {
+            ResetRemote();
+            m_remote_notice = !client ? "Create or join a room in Melee" :
+                (m_remote_slot < 0 ? "Connecting to room..." : "Free room • no entry payment");
+            RenderView(view, false, false, true);
+            return;
+        }
+        if (!RoomView(payment, view) || m_remote_slot == -1) {
+            ResetRemote();
+            view = {};
+            view.phase = 7;
+            std::fill(std::begin(view.kinds), std::end(view.kinds), 3);
+            std::strcpy(view.error, "Invalid room payment state; no invoice can be displayed.");
+            RenderView(view, false, false, true);
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        for (int i = 0; i < 4; ++i) {
+            const auto address = wxString::FromUTF8(view.addresses[i]);
+            if (i != m_remote_slot || (!m_addresses_dirty[i] && !m_address_pending[i]))
+                if (m_address[i]->GetValue() != address) m_address[i]->ChangeValue(address);
+            if (i != m_remote_slot) continue;
+            if (m_address_pending[i]) {
+                if (m_address[i]->GetValue() != m_address_submitted[i]) {
+                    m_address_pending[i] = false;
+                    m_auto_attempted[i].clear();
+                } else if (address == m_address_submitted[i]) {
+                    m_addresses_dirty[i] = false;
+                    // Leave time for the queued command to reach the server before
+                    // interpreting an earlier failed check of the same address.
+                    if (view.verification_state[i] != 0 && view.verification_state[i] != 1 &&
+                        now - m_auto_started[i] >= std::chrono::seconds(1))
+                        m_address_pending[i] = false;
+                }
+                if (m_address_pending[i] &&
+                    ((view.error[0] && wxString::FromUTF8(view.error) != m_remote_error_at_submit) ||
+                     now - m_auto_started[i] > std::chrono::seconds(45))) {
+                    m_address_pending[i] = false;
+                    m_auto_failure[i] = view.error[0] ? wxString::FromUTF8(view.error) :
+                        wxString("Server did not confirm the address. Retry when connected.");
+                }
+            }
+            if (!m_addresses_dirty[i] && !m_address_pending[i]) {
+                if (view.verification_state[i] == 2) m_auto_failure[i].clear();
+                else if (view.verification_state[i] == 3 || view.verification_state[i] == 5)
+                    m_auto_failure[i] = wxString::FromUTF8(view.verification_message[i]);
+            }
+            const auto input = m_address[i]->GetValue();
+            const bool funding = view.phase == 1 || view.phase == 2;
+            if (funding && !view.paid_sats[i] && !m_address_pending[i] && !input.empty() &&
+                (m_addresses_dirty[i] || view.verification_state[i] != 2) && input != m_auto_attempted[i] &&
+                now - m_edited_at[i] >= std::chrono::milliseconds(750)) {
+                m_auto_attempted[i] = input;
+                if (client->SetAddress(input.utf8_str().data())) {
+                    m_address_pending[i] = true;
+                    m_address_submitted[i] = input;
+                    m_auto_started[i] = now;
+                    m_auto_failure[i].clear();
+                    m_remote_error_at_submit = wxString::FromUTF8(view.error);
+                } else m_auto_failure[i] = "Address could not be queued; check the room connection.";
+            }
+        }
+        RenderView(view, m_address_pending[m_remote_slot],
+            !m_addresses_dirty[m_remote_slot] && view.verification_state[m_remote_slot] == 2, true);
+    }
 	void Poll()
 	{
+		if (m_remote) { PollRemote(); return; }
 		if (!m_enabled) { m_phase->SetLabel("Payment gate disabled"); return; }
 		ArenaLocalView view = {};
 		if (!m_handle || !arena_local_snapshot(m_handle, &view)) return;
@@ -647,7 +842,7 @@ private:
                 m_phone_join->Show(joined);
                 if (joined) {
                     m_phone_code->SetLabel(code);
-                    m_phone_website->SetLabel(website.StartsWith("http://") ? website.Mid(7) : website);
+                    m_phone_website->SetLabel(website.Mid(website.StartsWith("https://") ? 8 : 7));
                     m_phone_website->SetToolTip(website);
                     m_phone_website->Wrap(CONTENT_WIDTH - 160);
                 }
@@ -663,7 +858,7 @@ private:
         m_payable_missed_sats = view.payable_missed_sats;
         m_pay_missed->Enable(view.payable_missed_sats > 0 && !view.busy);
         m_show_missed->SetForegroundColour(view.missed_sats ? ACCENT : TEXT_COLOUR);
-        m_show_missed->SetToolTip(wxString::Format("%llu sats missed; %llu sats safe to request after match. Open for amounts, addresses, and status.",
+        m_show_missed->SetToolTip(wxString::Format("%llu sats awaiting settlement; %llu sats need Retry now. Open for amounts, addresses, and status.",
             static_cast<unsigned long long>(view.missed_sats), static_cast<unsigned long long>(view.payable_missed_sats)));
         if (m_missed->GetStringSelection().empty()) {
             const auto text = wxString::FromUTF8(view.missed_log);
@@ -764,6 +959,18 @@ private:
 			for (int i = 0; i < 4; ++i)
 				if (view.kinds[i] != match.kinds[i] || view.team_ids[i] != match.team_ids[i]) m_capture_failed = true;
 		}
+        const bool strip = UseBottomStrip(m_strip, m_in_match,
+            funding && css.roster_valid && !m_admitted && !m_in_match);
+        if (strip != m_strip)
+        {
+            m_strip = strip;
+            if (!strip)
+            {
+                m_summary_manual = m_summary_auto = false;
+                m_next_setup_requested = false;
+            }
+            PublishView(view);
+        }
 		if (m_in_match && view.phase == 3 && !view.busy && !m_capture_failed && !match.credit_stream_incomplete)
 		{
 			std::vector<ArenaLocalCredit> credits;
@@ -776,6 +983,7 @@ private:
 			else if (!credits.empty())
 			{
 				m_credit_pending = arena_local_credits(m_handle, credits.data(), credits.size());
+                RenderView(view, checking_addresses, addresses_saved, roster_matches);
 				return; // Acknowledge all final credits before submitting the result.
 			}
 		}
@@ -786,7 +994,12 @@ private:
 				const int winner = match.game_ended && match.credit_stream_seen && !m_capture_failed && !match.credit_stream_incomplete ? match.winner_port : -1;
 				const bool incomplete = m_capture_failed || match.credit_stream_incomplete || !match.credit_stream_seen;
 				const unsigned result = winner >= 0 && winner < 4 ? (winner < 2 ? 6 + winner : 9 + winner) : (incomplete ? 13 : 8);
-				if (Send(result)) { m_in_match = false; m_admitted = false; m_show_next_summary = true; }
+				if (Send(result))
+                {
+                    m_in_match = false; m_admitted = false; m_show_next_summary = true;
+                    m_result_start_request = css.start_requests;
+                    m_next_setup_requested = false;
+                }
 			}
 			else if (m_abandon || (!m_admitted && !m_start_pending) ||
 				(m_admitted && !m_in_match && (!Core::IsRunning() || css.generation != m_generation)))
@@ -796,7 +1009,8 @@ private:
 		}
 		else if (!view.busy && !m_admitted && !m_start_pending)
 		{
-			if ((view.phase == 4 || view.phase == 6) && css.roster_valid)
+			if ((view.phase == 4 || view.phase == 6) && css.roster_valid &&
+                WantsNextSetup(m_strip, m_next_setup_requested, css.start_requests, m_result_start_request))
 			{
 				m_capture_failed = false;
 				Send(1);
@@ -830,11 +1044,39 @@ private:
 			}
 		}
 		if (funding && !any_paid) m_lobby_generation = css.scene_generation;
-        const bool show_css = !m_admitted && !m_in_match && (css.kinds[0] < 2 || css.kinds[1] < 2 || css.kinds[2] < 2 || css.kinds[3] < 2);
+        RenderView(view, checking_addresses, addresses_saved, roster_matches);
+    }
+
+    void RenderView(const ArenaLocalView& view, bool checking_addresses, bool addresses_saved, bool roster_matches)
+    {
+        if (m_remote && m_refresh_header) {
+            for (auto* child : GetChildren())
+                if (child->IsKindOf(CLASSINFO(wxStaticText))) child->InvalidateBestSize();
+            m_refresh_header = false;
+        }
+        const auto css = SatsArena::GetPaymentGate().Read();
+        const auto match = SatsArena::GetTracker().Read();
+        const bool funding = view.phase == 1 || view.phase == 2;
+        const bool show_css = !m_remote && !m_admitted && !m_in_match && (css.kinds[0] < 2 || css.kinds[1] < 2 || css.kinds[2] < 2 || css.kinds[3] < 2);
         wxString phase;
-        if (view.phase == 0) phase = "Connecting wallet...";
+        if (m_remote) {
+            if (!m_remote_notice.empty()) phase = m_remote_notice;
+            else if (view.phase == 7 || view.error[0]) phase = "Payment needs attention";
+            else if (view.phase == 6) phase = "Server is settling payments...";
+            else if (view.phase == 4) phase = "Match settled";
+            else if (view.phase == 3) phase = "Match in progress";
+            else if (view.phase == 2) phase = "Entries confirmed • ready to play";
+            else if (checking_addresses) phase = "Checking your receiving address...";
+            else if (m_remote_slot < 0 || m_address[m_remote_slot]->GetValue().empty()) phase = "Enter your receiving address";
+            else if (view.paid_sats[m_remote_slot]) phase = "Your entry confirmed • waiting for partner";
+            else if (!m_addresses_dirty[m_remote_slot] && view.verification_state[m_remote_slot] == 2 &&
+                view.invoices[m_remote_slot][0]) phase = "Scan to pay your entry";
+            else phase = "Awaiting your entry invoice...";
+        }
+        else if (view.phase == 0) phase = "Connecting wallet...";
         else if (view.phase == 7 || view.error[0]) phase = "Payment needs attention";
-        else if (view.phase == 6) phase = "Sending payouts...";
+        else if (view.phase == 6) phase = wxString::Format("Settling %llu sats...",
+            static_cast<unsigned long long>(view.pending_sats[0] + view.pending_sats[1] + view.pending_sats[2] + view.pending_sats[3]));
         else if (m_in_match) phase = "Match in progress";
         else if (m_admitted) phase = "Choose a stage";
         else if (funding && (!css.roster_valid || !roster_matches)) phase = "Select your fighters";
@@ -860,9 +1102,9 @@ private:
         m_background_payments->Wrap(CONTENT_WIDTH);
         m_background_payments->Show(!background.empty());
         wxString warning;
-        if (funding && !addresses_saved && css.ready) {
+        if (funding && !addresses_saved && (m_remote || css.ready)) {
             for (int i = 0; i < 4; ++i) {
-                if (!Pays(view, i)) continue;
+                if (!Pays(view, i) || (m_remote && i != m_remote_slot)) continue;
                 if (!m_auto_failure[i].empty()) { warning = wxString::Format("Player %d: %s", i + 1, m_auto_failure[i]); break; }
                 if (m_address[i]->GetValue().empty()) { warning = wxString::Format("Player %d: enter a Lightning address.", i + 1); break; }
             }
@@ -878,9 +1120,10 @@ private:
         m_rate_rule->SetToolTip(wxString::Format("%s, paid in %llu-second batches. The remaining pot settles after the match.", rate_rule, static_cast<unsigned long long>(view.batch_window_ms / 1000)));
         m_invoice_rule->SetLabel(wxString::Format("%llu sats", static_cast<unsigned long long>(view.invoice_sats)));
         m_invoice_rule->Show(view.phase != 0);
-        m_wallet_mode->SetLabel(view.sandbox ? "SANDBOX" : "FAKE WALLET");
-        m_wallet_mode->SetToolTip("Development wallet: no real bitcoin is transferred.");
-        m_wallet_mode->Show(view.phase != 0 && (view.sandbox || view.simulated));
+        m_wallet_mode->SetLabel(view.sandbox ? "SANDBOX" : (view.simulated ? "FAKE WALLET" : "SERVER WALLET"));
+        m_wallet_mode->SetToolTip(m_remote ? "The room server holds entries and handles settlement. Your wallet connection stays private." :
+            "Development wallet: no real bitcoin is transferred.");
+        m_wallet_mode->Show(view.phase != 0 && (m_remote || view.sandbox || view.simulated));
         for (int i = 0; i < 4; ++i)
         {
             const bool use_css = show_css && !(funding && view.paid_sats[i]);
@@ -900,22 +1143,24 @@ private:
             m_refresh_layout[i] = m_rows[i]->Show(kind < 2);
             wxString label = wxString::Format("PLAYER %d • %s", i + 1, human ? "Human" : "CPU");
             if (teams && team < 3) label = wxString::Format(human ? "PLAYER %d • %s Team" : "PLAYER %d • CPU • %s", i + 1, TeamName(team));
+            if (m_remote && i == m_remote_slot) label += " • You";
             m_player[i]->SetLabel(label);
             m_player[i]->SetForegroundColour(teams && team < 3 ? TEAM_COLOURS[team] : PLAYER_COLOURS[i]);
             m_entry_status[i]->SetLabel(!financial ? "NO ENTRY" : (paid ? "PAID" : "UNPAID"));
             m_entry_status[i]->SetForegroundColour(!financial ? MUTED : (paid ? GREEN : ACCENT));
             m_entry_status[i]->SetToolTip(financial ? wxString::Format("%s: %llu sats", paid ? "Entry received" : "Entry to pay", static_cast<unsigned long long>(view.invoice_sats)) : "CPU wallets are disabled for this match");
-            const unsigned status = m_addresses_dirty[i] ? 0 : view.verification_state[i];
+            const unsigned status = m_addresses_dirty[i] || (m_remote && m_address_pending[i]) ? 0 : view.verification_state[i];
             const bool compact_address = status == 2 && !m_editing_address[i] && !m_addresses_dirty[i] && !m_address[i]->HasFocus();
             m_address[i]->Show(financial && !compact_address);
             m_address_display[i]->SetLabel(m_address[i]->GetValue());
             m_address_display[i]->InvalidateBestSize();
             m_address_display[i]->SetToolTip(m_address[i]->GetValue());
             m_address_display[i]->Show(financial && compact_address);
-            m_edit_address[i]->Show(financial && compact_address && funding && !paid && !view.sandbox);
-            m_verify[i]->Show(financial && funding && !m_auto_failure[i].empty());
+            const bool editable = financial && funding && !paid && (m_remote ? i == m_remote_slot : !view.sandbox);
+            m_edit_address[i]->Show(editable && compact_address);
+            m_verify[i]->Show(editable && !m_auto_failure[i].empty());
             // Keep focus, selection and caret intact while asynchronous validation runs.
-            m_address[i]->Enable(financial && funding && !paid && !view.sandbox);
+            m_address[i]->Enable(editable);
             m_address[i]->SetHint(human ? "Your Lightning address" : "CPU receiving wallet address");
             m_verify[i]->Enable(funding && !view.busy && !m_address_pending[i]);
             wxString verification;
@@ -927,12 +1172,13 @@ private:
             else if (status == 3 || status == 5) { verification = wxString::FromUTF8(view.verification_message[i]); colour = ACCENT; }
             else if (m_address[i]->GetValue().empty() && !human && financial && !view.sandbox)
                 verification = "Enter an address from a wallet you control. For automatic test wallets, use Set up CPU test wallets in the launcher.";
+            else if (m_remote && i != m_remote_slot && m_address[i]->GetValue().empty()) verification = "Waiting for player's receiving address";
             else verification = m_address[i]->GetValue().empty() ? "Enter a Lightning address" : "Waiting for automatic check...";
             m_verification[i]->SetLabel(verification);
             m_verification[i]->Wrap(PLAYER_WIDTH);
             m_verification[i]->SetForegroundColour(colour);
             m_verification[i]->SetToolTip(status == 2 ? "Receiving address verified automatically; reused for up to 30 minutes. No funds sent for verification." : wxString::FromUTF8(view.verification_message[i]));
-            const bool show = financial && !m_addresses_dirty[i] && status == 2 && !m_admitted && funding;
+            const bool show = financial && (!m_remote || i == m_remote_slot) && !m_addresses_dirty[i] && status == 2 && !m_admitted && funding;
             const wxString invoice = show && !paid && view.invoices[i][0] ? wxString::FromUTF8(view.invoices[i]) : "";
             const bool has_qr = !invoice.empty();
             m_body[i]->ShowItems(financial);
@@ -956,7 +1202,7 @@ private:
             m_pending_delay[i]->SetLabel(view.batch_remaining_ms[i] ? wxString::Format("in %llus", static_cast<unsigned long long>((view.batch_remaining_ms[i] + 999) / 1000)) : wxString("Sending..."));
             m_pending_delay[i]->Show(financial && view.pending_sats[i] != 0);
             m_pay[i]->SetToolTip(view.sandbox ? "Pay from this player's Sandbox test wallet" : "Simulate this player's entry payment");
-            m_pay[i]->Show(financial && !paid && (view.simulated || view.sandbox) && show);
+            m_pay[i]->Show(!m_remote && financial && !paid && (view.simulated || view.sandbox) && show);
             m_pay[i]->Enable(show && view.phase == 1 && !view.busy && !paid);
             m_rows[i]->SetMinSize(wxSize(-1, m_rows[i]->GetSizer()->CalcMin().y));
             m_rows[i]->Layout();
@@ -971,7 +1217,7 @@ private:
 		m_error->SetToolTip(m_error->GetLabel());
 		m_error->Show(view.error[0] != 0 || view.payment_error[0] != 0);
 		wxString activity;
-		if ((m_admitted || m_in_match) && (m_capture_failed || match.credit_stream_incomplete)) activity = "Incomplete match data • unspent funds will be returned\n";
+		if (!m_remote && (m_admitted || m_in_match) && (m_capture_failed || match.credit_stream_incomplete)) activity = "Incomplete match data • unspent funds will be returned\n";
 		activity += wxString::FromUTF8(view.payment_log);
 		if (activity.empty()) activity = "No payments yet.";
 		if (m_log->GetValue() != activity) { m_log->ChangeValue(activity); m_log->ShowPosition(m_log->GetLastPosition()); }
@@ -980,7 +1226,7 @@ private:
         if (m_summary_available && summary_id != m_summary_id) {
             m_summary_id = summary_id;
             BuildSummary(view);
-            m_summary_auto = m_show_next_summary;
+            m_summary_auto = m_show_next_summary && !m_view_callback;
             m_show_next_summary = false;
             m_summary_start_request = css.start_requests;
             m_summary_manual = false;
@@ -990,10 +1236,18 @@ private:
         if (m_in_match || m_admitted) m_summary_manual = m_summary_auto = false;
         m_last_match->Enable(m_summary_available && !m_in_match && !m_admitted);
         LayoutSummary();
+        PublishView(view);
 	}
 
 	ArenaLocalHandle* m_handle = nullptr;
 	wxTimer m_timer;
+    ViewCallback m_view_callback;
+    bool m_strip = false, m_next_setup_requested = false;
+    std::uint64_t m_result_start_request = 0;
+    bool m_remote = false;
+    std::weak_ptr<SatsArenaRoomClient> m_remote_client;
+    int m_remote_slot = -1;
+    wxString m_remote_notice, m_remote_error_at_submit;
 	bool m_enabled = true, m_start_pending = false, m_admitted = false;
 	bool m_in_match = false, m_abandon = false, m_show_next_summary = false;
 	std::uint64_t m_generation = 0, m_match_number = 0, m_log_revision = ~std::uint64_t(0);
@@ -1030,6 +1284,13 @@ private:
 	wxStaticText* m_verification[4] = {};
 	wxStaticBitmap* m_qr[4] = {};
 	wxTextCtrl* m_address[4] = {};
+    wxPanel* m_room_options = nullptr;
+    wxChoice* m_room_count = nullptr;
+    wxChoice* m_room_mode = nullptr;
+    wxChoice* m_room_teams[4] = {};
+    wxStaticText* m_room_team_labels[4] = {};
+    wxStaticText* m_room_config_note = nullptr;
+    nlohmann::json m_room_display_config = nullptr;
 	wxStaticText* m_phone_room = nullptr;
 	wxPanel* m_phone_join = nullptr;
 	wxStaticText* m_phone_website = nullptr;
@@ -1067,5 +1328,7 @@ private:
 	wxString m_last_invoice[4];
 };
 }
-wxWindow* CreateSidebar(wxWindow* parent) { return new FundingPanel(parent); }
+wxWindow* CreateSidebar(wxWindow* parent, ViewCallback view) { return new FundingPanel(parent, std::move(view)); }
+void FocusPlayer(wxWindow* sidebar, int player) { static_cast<FundingPanel*>(sidebar)->FocusPlayer(player); }
+void NextSetup(wxWindow* sidebar) { static_cast<FundingPanel*>(sidebar)->NextSetup(); }
 }

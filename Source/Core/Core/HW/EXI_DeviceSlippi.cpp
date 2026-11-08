@@ -5,6 +5,9 @@
 #include "Core/Debugger/Debugger_SymbolMap.h"
 
 #include "Core/Slippi/SlippiPlayback.h"
+#include "Core/Slippi/SatsArenaNetplayRoom.h"
+#include "Core/Slippi/SatsArenaRoomClient.h"
+#include "Core/Slippi/SatsArenaGameplay.h"
 #include "Core/Slippi/SlippiPremadeText.h"
 #include "Core/Slippi/SlippiReplayComm.h"
 #ifdef SATS_ARENA
@@ -46,6 +49,11 @@
 
 // The Rust library that houses a "shadow" EXI Device that we can call into.
 #include "SlippiRustExtensions.h"
+
+// X11 headers pulled in by Frame.h define Status as a macro.
+#ifdef Status
+#undef Status
+#endif
 
 void doConnectionCleanup(std::unique_ptr<SlippiMatchmaking> mm, std::unique_ptr<SlippiNetplayClient> nc);
 
@@ -233,13 +241,15 @@ CEXISlippi::~CEXISlippi()
 	{
 		ERROR_LOG(SLIPPI_ONLINE, "Exit during in-progress ranked game: %s", activeMatchId.c_str());
 
-		slprs_exi_device_report_match_status(slprs_exi_device_ptr, activeMatchId.c_str(), "abandoned", false);
+		if (!SatsArenaNetplay::Enabled())
+			slprs_exi_device_report_match_status(slprs_exi_device_ptr, activeMatchId.c_str(), "abandoned", false);
 	}
 	// The matchmaking thread calls into the Rust device as it winds down, so it is torn down
 	// here, before the device is destroyed, rather than on the cleanup thread. This is bounded:
 	// the STUN and poll loops check the terminated flag and the Rust side cancels without
 	// waiting on its worker. Netplay teardown stays off this thread as before.
 	matchmaking.reset();
+	SatsArenaRoomClient::SetActive(nullptr);
 	std::thread cleanup(doConnectionCleanup, std::unique_ptr<SlippiMatchmaking>(), std::move(slippi_netplay));
 	cleanup.detach();
 
@@ -1243,6 +1253,15 @@ bool CEXISlippi::isDisconnected()
 {
 	if (!slippi_netplay)
 		return true;
+	if (SatsArenaNetplay::ServerEnabled())
+	{
+		const auto room = SatsArenaRoomClient::Active();
+		if (room && room->IsClosed())
+		{
+			slippi_netplay->ForceDisconnect();
+			return true;
+		}
+	}
 
 	auto status = slippi_netplay->GetSlippiConnectStatus();
 	return status != SlippiNetplayClient::SlippiConnectStatus::NET_CONNECT_STATUS_CONNECTED;
@@ -1296,6 +1315,9 @@ void CEXISlippi::handleOnlineInputs(u8 *payload)
 
 	if (isDisconnected())
 	{
+#ifdef SATS_ARENA
+		if (SatsArenaNetplay::Enabled()) SatsArena::GetTracker().InterruptOnlineMatch();
+#endif
 		// Both clients reach this path when a poor-performance termination fires: the initiating
 		// side set the reason locally, the other side received it over the disconnect. Show the
 		// message on both ends rather than only where the debt happened to cross the threshold first.
@@ -1419,7 +1441,8 @@ void CEXISlippi::handlePoorMatchPerformance(s32 frame)
 		// disconnect-detection path end the game naturally (next handleOnlineInputs sees
 		// isDisconnected()), same as a real disconnect. The reason rides the disconnect to the
 		// peer so both clients surface the OSD message from the shared disconnect path below.
-		slprs_exi_device_report_match_status(slprs_exi_device_ptr, recentMmResult.id.c_str(), "poor_performance", true);
+		if (!SatsArenaNetplay::Enabled())
+			slprs_exi_device_report_match_status(slprs_exi_device_ptr, recentMmResult.id.c_str(), "poor_performance", true);
 		slippi_netplay->ForceDisconnect(SlippiNetplayClient::SlippiDisconnectReason::POOR_PERFORMANCE);
 		ERROR_LOG(SLIPPI_ONLINE, "Match terminated due to poor performance. %d/%d", perfDebt, terminateThreshold);
 	}
@@ -1444,8 +1467,10 @@ bool CEXISlippi::shouldSkipOnlineFrame(s32 frame, s32 finalizedFrame)
 	// ROLLBACK_MAX_FRAMES is our look-ahead limit: see the prior comment block in git
 	// history for the savestate math.
 	bool anyPlayerNeedsInputs = false;
-	u8 remotePlayerCount = matchmaking->RemotePlayerCount();
-	for (u8 i = 0; i < remotePlayerCount; i++)
+	const u8 remotePlayerCount = matchmaking->RemotePlayerCount();
+	if (remotePlayerCount == 0 || remotePlayerCount > SLIPPI_REMOTE_PLAYER_MAX)
+		return false; // The input response below rejects the invalid roster.
+	for (u8 i = 0; i < SLIPPI_REMOTE_PLAYER_MAX && i < remotePlayerCount; i++)
 	{
 		auto pad = slippi_netplay->GetSlippiRemotePad(i, ROLLBACK_MAX_FRAMES);
 		if (pad->isDisconnected)
@@ -1707,7 +1732,16 @@ void CEXISlippi::prepareOpponentInputs(s32 frame, bool shouldSkip)
 
 	m_read_queue.push_back(frameResult); // Write out the control message value
 
-	u8 remotePlayerCount = matchmaking->RemotePlayerCount();
+	const u8 remotePlayerCount = matchmaking->RemotePlayerCount();
+	static_assert(SLIPPI_REMOTE_PLAYER_MAX == 3, "Four-player online buffer layout expects three remote peers");
+	if (remotePlayerCount == 0 || remotePlayerCount > SLIPPI_REMOTE_PLAYER_MAX)
+	{
+#ifdef SATS_ARENA
+		if (SatsArenaNetplay::Enabled()) SatsArena::GetTracker().InterruptOnlineMatch();
+#endif
+		m_read_queue.assign(1, 3); // Same disconnect response as handleOnlineInputs.
+		return;
+	}
 	m_read_queue.push_back(remotePlayerCount); // Indicate the number of remote players
 
 	std::unique_ptr<SlippiRemotePadOutput> results[SLIPPI_REMOTE_PLAYER_MAX];
@@ -1715,11 +1749,15 @@ void CEXISlippi::prepareOpponentInputs(s32 frame, bool shouldSkip)
 	s32 latestFrameFromOpps = Slippi::GAME_FIRST_FRAME - 1;
 	u32 lastChecksumFrame = 0;
 	u32 lastChecksum = 0;
-	for (int i = 0; i < remotePlayerCount; i++)
+	for (int i = 0; i < SLIPPI_REMOTE_PLAYER_MAX && i < remotePlayerCount; i++)
 	{
 		results[i] = slippi_netplay->GetSlippiRemotePad(i, ROLLBACK_MAX_FRAMES);
 		if (results[i]->isDisconnected)
 		{
+#ifdef SATS_ARENA
+			// Despawning a peer may keep the game moving, but cannot authorize payouts.
+			if (SatsArenaNetplay::Enabled()) SatsArena::GetTracker().InterruptOnlineMatch();
+#endif
 			continue;
 		}
 		// results[i] = slippi_netplay->GetFakePadOutput(frame);
@@ -1741,7 +1779,7 @@ void CEXISlippi::prepareOpponentInputs(s32 frame, bool shouldSkip)
 	// received frames might still work out to the same despawn frame
 	constexpr s32 SLIPPI_DESPAWN_FRAME_INTERVAL = 30;
 	u8 shouldDespawn[SLIPPI_REMOTE_PLAYER_MAX] = {0, 0, 0};
-	for (int i = 0; i < remotePlayerCount; i++)
+	for (int i = 0; i < SLIPPI_REMOTE_PLAYER_MAX && i < remotePlayerCount; i++)
 	{
 		if (!results[i]->isDisconnected)
 			continue;
@@ -1757,7 +1795,7 @@ void CEXISlippi::prepareOpponentInputs(s32 frame, bool shouldSkip)
 			shouldDespawn[i] = 1;
 	}
 
-	for (int i = 0; i < remotePlayerCount; i++)
+	for (int i = 0; i < SLIPPI_REMOTE_PLAYER_MAX && i < remotePlayerCount; i++)
 	{
 		if (!results[i]->isDisconnected)
 		{
@@ -1789,7 +1827,7 @@ void CEXISlippi::prepareOpponentInputs(s32 frame, bool shouldSkip)
 	int32_t latestFrameRead[SLIPPI_REMOTE_PLAYER_MAX]{};
 
 	// Get pad data for each remote player and write each of their latest frame nums to the buf
-	for (int i = 0; i < remotePlayerCount; i++)
+	for (int i = 0; i < SLIPPI_REMOTE_PLAYER_MAX && i < remotePlayerCount; i++)
 	{
 		// determine offset from which to copy data
 		offset[i] = (results[i]->latestFrame - frame) * SLIPPI_PAD_FULL_SIZE;
@@ -1934,7 +1972,7 @@ void CEXISlippi::startFindMatch(u8 *payload)
 	shiftJisCode.erase(std::find(shiftJisCode.begin(), shiftJisCode.end(), 0x00), shiftJisCode.end());
 
 	// Log the direct code to file.
-	if (search.mode == SlippiMatchmaking::DIRECT)
+	if (search.mode == SlippiMatchmaking::DIRECT && !SatsArenaNetplay::ServerEnabled())
 	{
 		// Make sure to convert to UTF8, otherwise json library will fail when
 		// calling dump().
@@ -1949,7 +1987,7 @@ void CEXISlippi::startFindMatch(u8 *payload)
 
 	// TODO: Make this work so we dont have to pass shiftJis to mm server
 	// search.connectCode = SHIFTJISToUTF8(shiftJisCode).c_str();
-	search.connectCode = shiftJisCode;
+	search.connectCode = SatsArenaNetplay::ServerEnabled() ? SHIFTJISToUTF8(shiftJisCode) : shiftJisCode;
 
 	// Store this search so we know what was queued for
 	lastSearch = search;
@@ -2023,6 +2061,18 @@ bool CEXISlippi::doesTagMatchInput(u8 *input, u8 inputLen, std::string tag)
 void CEXISlippi::handleNameEntryLoad(u8 *payload)
 {
 	u8 inputLen = payload[24];
+	if (SatsArenaNetplay::ServerEnabled())
+	{
+		// Room codes have no Slippi account-history suggestions.
+		inputLen = std::min<u8>(inputLen, 8);
+		m_read_queue.clear();
+		m_read_queue.push_back(0);
+		m_read_queue.insert(m_read_queue.end(), payload, payload + 3 * inputLen);
+		m_read_queue.insert(m_read_queue.end(), 3 * (8 - inputLen), 0);
+		m_read_queue.push_back(inputLen);
+		appendWordToBuffer(&m_read_queue, 0);
+		return;
+	}
 	u32 initialIndex = payload[25] << 24 | payload[26] << 16 | payload[27] << 8 | payload[28];
 	u8 scrollDirection = payload[29];
 	u8 curMode = payload[30];
@@ -2145,6 +2195,27 @@ void CEXISlippi::prepareOnlineMatchState()
 
 	m_read_queue.clear();
 
+	if (SatsArenaNetplay::ServerEnabled() && slippi_netplay && recentMmResult.arenaRoom)
+	{
+		auto client = SatsArenaRoomClient::Active();
+		SatsArenaNetplay::Room room;
+		std::string error;
+		const auto status = client ? client->Poll(room, error) : SatsArenaRoomClient::Status::Closed;
+		if (status == SatsArenaRoomClient::Status::Closed || status == SatsArenaRoomClient::Status::Failed)
+		{
+			handleConnectionCleanup();
+			forcedError = error.empty() ? "Room closed" : error;
+			prepareOnlineMatchState();
+			return;
+		}
+		if (matchmaking->ArenaRosterChanged())
+		{
+			handleConnectionCleanup();
+			prepareOnlineMatchState();
+			return;
+		}
+	}
+
 	auto errorState = SlippiMatchmaking::ProcessState::ERROR_ENCOUNTERED;
 	SlippiMatchmaking::ProcessState mmState = !forcedError.empty() ? errorState : matchmaking->GetMatchmakeState();
 
@@ -2167,6 +2238,15 @@ void CEXISlippi::prepareOnlineMatchState()
 	if (mmState == SlippiMatchmaking::ProcessState::CONNECTION_SUCCESS)
 	{
 		localPlayerIndex = matchmaking->LocalPlayerIndex();
+#ifndef LOCAL_TESTING
+		if (matchmaking->RemotePlayerCount() == 0 || matchmaking->RemotePlayerCount() > SLIPPI_REMOTE_PLAYER_MAX)
+		{
+			handleConnectionCleanup();
+			forcedError = "Invalid online player count";
+			prepareOnlineMatchState();
+			return;
+		}
+#endif
 
 		if (!slippi_netplay)
 		{
@@ -2181,6 +2261,8 @@ void CEXISlippi::prepareOnlineMatchState()
 			// who we were connected to after they disconnect from us, for example in the case of reporting
 			// a match. So let's copy the results.
 			recentMmResult = matchmaking->GetMatchmakeResult();
+			if (recentMmResult.arenaRoom)
+				localSelections.teamId = recentMmResult.arenaConfig.team_ids[localPlayerIndex];
 
 			// Use allowed stages from the matchmaking service and pick a new random stage before sending
 			// the selections to the opponent
@@ -2200,6 +2282,17 @@ void CEXISlippi::prepareOnlineMatchState()
 			stagePool.clear(); // Clear stage pool so that when we call getRandomStage it will use full list
 			localSelections.stageId = getRandomStage();
 			slippi_netplay->SetMatchSelections(localSelections);
+		}
+		if (recentMmResult.arenaRoom)
+		{
+			lastSearch.mode = recentMmResult.arenaConfig.teams ? SlippiMatchmaking::TEAMS : SlippiMatchmaking::DIRECT;
+			if (!SatsArenaNetplay::ApplyGameConfig(recentMmResult.arenaConfig, onlineMatchBlock))
+			{
+				handleConnectionCleanup();
+				forcedError = "Invalid room gameplay configuration";
+				prepareOnlineMatchState();
+				return;
+			}
 		}
 
 #ifdef LOCAL_TESTING
@@ -2252,7 +2345,8 @@ void CEXISlippi::prepareOnlineMatchState()
 		// Here we are connected, check to see if we should init play session
 		if (!isPlaySessionActive)
 		{
-			slprs_exi_device_start_new_reporter_session(slprs_exi_device_ptr);
+			if (!SatsArenaNetplay::Enabled())
+				slprs_exi_device_start_new_reporter_session(slprs_exi_device_ptr);
 			isPlaySessionActive = true;
 		}
 	}
@@ -2304,6 +2398,19 @@ void CEXISlippi::prepareOnlineMatchState()
 		return;
 	}
 
+#ifdef SATS_ARENA
+	if (SatsArenaNetplay::ServerEnabled() && recentMmResult.arenaRoom)
+	{
+		const auto client = SatsArenaRoomClient::Active();
+		SatsArenaNetplay::Room room;
+		std::string error;
+		const auto tracked = SatsArena::GetTracker().Read();
+		const bool admitted = client && client->Poll(room, error) == SatsArenaRoomClient::Status::Started &&
+		    !room.match_id.empty() && !(tracked.online && tracked.game_ended && tracked.match_id == room.match_id);
+		if (admitted) recentMmResult.id = room.match_id;
+		else localPlayerReady = remotePlayersReady = 0;
+	}
+#endif
 	m_read_queue.push_back(localPlayerReady);   // Local player ready
 	m_read_queue.push_back(remotePlayersReady); // Remote players ready
 	m_read_queue.push_back(localPlayerIndex);   // Local player index
@@ -2397,6 +2504,18 @@ void CEXISlippi::prepareOnlineMatchState()
 		// the values from here, which is probably not the cleanest thing since they're coming from the netplay class.
 		// Unfortunately, I think it might be required for the overwrite stuff to work correctly though, maybe on a
 		// tiebreak in ranked?
+		if (recentMmResult.arenaRoom)
+		{
+			std::vector<unsigned> slots = {lps.playerIdx};
+			for (unsigned i = 0; i < remotePlayerCount; ++i) slots.push_back(rps[i].playerIdx);
+			if (!SatsArenaNetplay::SelectionSlots(recentMmResult.arenaConfig, slots))
+			{
+				handleConnectionCleanup();
+				forcedError = "Room player selections do not match the admitted roster";
+				prepareOnlineMatchState();
+				return;
+			}
+		}
 		std::vector<SlippiPlayerSelections *> orderedSelections(remotePlayerCount + 1);
 		orderedSelections[lps.playerIdx] = &lps;
 		for (int i = 0; i < remotePlayerCount; i++)
@@ -2508,8 +2627,9 @@ void CEXISlippi::prepareOnlineMatchState()
 				continue;
 			}
 
-			auto teamId = isTeams ? s->teamId : 0;
-			if (isTeams && areAllSameTeam)
+			auto teamId = recentMmResult.arenaRoom ? recentMmResult.arenaConfig.team_ids[s->playerIdx] :
+			    (isTeams ? s->teamId : 0);
+			if (!recentMmResult.arenaRoom && isTeams && areAllSameTeam)
 			{
 				// Overwrite teamId. Color is overwritten by ASM
 				teamId = teamAssignments[s->playerIdx];
@@ -2737,6 +2857,11 @@ void CEXISlippi::prepareOnlineMatchState()
 
 	// Add error message if there is one
 	auto errorStr = !forcedError.empty() ? forcedError : matchmaking->GetErrorMessage();
+	if (SatsArenaNetplay::ServerEnabled() && mmState != errorState)
+	{
+		const auto roomCode = matchmaking->GetRoomCode();
+		errorStr = roomCode.empty() ? "Creating room..." : "Room code: " + roomCode;
+	}
 	errorStr = ConvertStringForGame(errorStr, 120);
 	m_read_queue.insert(m_read_queue.end(), errorStr.begin(), errorStr.end());
 
@@ -2795,6 +2920,8 @@ void CEXISlippi::setMatchSelections(u8 *payload)
 	SlippiPlayerSelections s;
 
 	s.teamId = payload[0];
+	if (slippi_netplay && recentMmResult.arenaRoom)
+		s.teamId = recentMmResult.arenaConfig.team_ids[localPlayerIndex];
 	s.characterId = payload[1];
 	s.characterColor = payload[2];
 	s.isCharacterSelected = payload[3];
@@ -3091,12 +3218,29 @@ void CEXISlippi::handleConnectionCleanup()
 {
 	ERROR_LOG(SLIPPI_ONLINE, "Connection cleanup started...");
 
+	const auto room = SatsArenaRoomClient::Active();
+	SatsArenaNetplay::Room roomView;
+	std::string roomError;
+	const auto roomState = room ? room->Poll(roomView, roomError) : SatsArenaRoomClient::Status::Closed;
+	const bool resumeRoom = SatsArenaNetplay::ServerEnabled() && room &&
+	    roomState != SatsArenaRoomClient::Status::Closed && roomState != SatsArenaRoomClient::Status::Failed;
+	auto cleanupDone = std::make_shared<std::atomic<bool>>(false);
 	// Handle destructors in a separate thread to not block the main thread
-	std::thread cleanup(doConnectionCleanup, std::move(matchmaking), std::move(slippi_netplay));
+	std::thread cleanup([cleanupDone](std::unique_ptr<SlippiMatchmaking> mm, std::unique_ptr<SlippiNetplayClient> nc) {
+		doConnectionCleanup(std::move(mm), std::move(nc));
+		cleanupDone->store(true);
+	}, std::move(matchmaking), std::move(slippi_netplay));
 	cleanup.detach();
 
 	// Reset matchmaking
-	matchmaking = std::make_unique<SlippiMatchmaking>(slprs_exi_device_ptr, user.get());
+	matchmaking = std::make_unique<SlippiMatchmaking>(slprs_exi_device_ptr, user.get(), cleanupDone);
+	if (resumeRoom)
+	{
+		SlippiMatchmaking::MatchSearchSettings search;
+		search.mode = SlippiMatchmaking::DIRECT;
+		search.connectCode = room->GetRoomCode();
+		matchmaking->FindMatch(search);
+	}
 
 	// Disconnect netplay client
 	slippi_netplay = nullptr;
@@ -3134,6 +3278,8 @@ void CEXISlippi::prepareNewSeed()
 
 void CEXISlippi::handleReportGame(const SlippiExiTypes::ReportGameQuery &query)
 {
+	if (SatsArenaNetplay::Enabled())
+		return;
 	std::string matchId = recentMmResult.id;
 	SlippiMatchmakingOnlinePlayMode onlineMode = static_cast<SlippiMatchmakingOnlinePlayMode>(query.onlineMode);
 	u32 durationFrames = query.frameLength;
@@ -3306,7 +3452,8 @@ void CEXISlippi::handleCompleteSet(const SlippiExiTypes::ReportSetCompletionQuer
 		auto userInfo = user->GetUserInfo();
 
 		auto status = query.endMode == 0 ? "normal_completion" : "abnormal_completion";
-		slprs_exi_device_report_match_status(slprs_exi_device_ptr, lastMatchId.c_str(), status, true);
+		if (!SatsArenaNetplay::Enabled())
+			slprs_exi_device_report_match_status(slprs_exi_device_ptr, lastMatchId.c_str(), status, true);
 	}
 }
 
@@ -3330,7 +3477,8 @@ void CEXISlippi::handleMatchStatusUpdate(const SlippiExiTypes::ReportMatchStatus
 	INFO_LOG(SLIPPI_ONLINE, "Reporting match status update: %s, Status: %s", lastMatchId.c_str(), statusString.c_str());
 
 	// Report asynchronously when called from the game
-	slprs_exi_device_report_match_status(slprs_exi_device_ptr, lastMatchId.c_str(), statusString.c_str(), true);
+	if (!SatsArenaNetplay::Enabled())
+		slprs_exi_device_report_match_status(slprs_exi_device_ptr, lastMatchId.c_str(), statusString.c_str(), true);
 }
 
 void CEXISlippi::handleGetPlayerSettings()
@@ -3427,7 +3575,8 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
 		m_slippiserver->startGame();
 		m_slippiserver->write(&memPtr[0], receiveCommandsLen + 1);
 
-		slprs_exi_device_reporter_push_replay_data(slprs_exi_device_ptr, &memPtr[0], receiveCommandsLen + 1);
+		if (!SatsArenaNetplay::Enabled())
+			slprs_exi_device_reporter_push_replay_data(slprs_exi_device_ptr, &memPtr[0], receiveCommandsLen + 1);
 	}
 
     if (byte == CMD_ARENA_PAYMENT_GATE)
@@ -3495,7 +3644,8 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
 			writeToFileAsync(&memPtr[bufLoc], payloadLen + 1, "close");
 			m_slippiserver->write(&memPtr[bufLoc], payloadLen + 1);
 			m_slippiserver->endGame();
-			slprs_exi_device_reporter_push_replay_data(slprs_exi_device_ptr, &memPtr[bufLoc], payloadLen + 1);
+			if (!SatsArenaNetplay::Enabled())
+				slprs_exi_device_reporter_push_replay_data(slprs_exi_device_ptr, &memPtr[bufLoc], payloadLen + 1);
 			break;
 		case CMD_PREPARE_REPLAY:
 			// log.open("log.txt");
@@ -3508,7 +3658,8 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
 			g_needInputForFrame = true;
 			writeToFileAsync(&memPtr[bufLoc], payloadLen + 1, "");
 			m_slippiserver->write(&memPtr[bufLoc], payloadLen + 1);
-			slprs_exi_device_reporter_push_replay_data(slprs_exi_device_ptr, &memPtr[bufLoc], payloadLen + 1);
+			if (!SatsArenaNetplay::Enabled())
+				slprs_exi_device_reporter_push_replay_data(slprs_exi_device_ptr, &memPtr[bufLoc], payloadLen + 1);
 			break;
 		case CMD_IS_STOCK_STEAL:
 			prepareIsStockSteal(&memPtr[bufLoc + 1]);
@@ -3632,13 +3783,15 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
 		}
 		case CMD_FETCH_RANK:
 		{
-			slprs_fetch_match_result(slprs_exi_device_ptr, recentMmResult.id.c_str());
+			if (!SatsArenaNetplay::Enabled())
+				slprs_fetch_match_result(slprs_exi_device_ptr, recentMmResult.id.c_str());
 			break;
 		}
 		default:
 			writeToFileAsync(&memPtr[bufLoc], payloadLen + 1, "");
 			m_slippiserver->write(&memPtr[bufLoc], payloadLen + 1);
-			slprs_exi_device_reporter_push_replay_data(slprs_exi_device_ptr, &memPtr[bufLoc], payloadLen + 1);
+			if (!SatsArenaNetplay::Enabled())
+				slprs_exi_device_reporter_push_replay_data(slprs_exi_device_ptr, &memPtr[bufLoc], payloadLen + 1);
 			break;
 		}
 

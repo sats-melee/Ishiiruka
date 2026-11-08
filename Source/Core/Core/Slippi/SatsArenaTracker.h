@@ -10,6 +10,7 @@
 #include <deque>
 #include <map>
 #include <mutex>
+#include <string>
 
 namespace SatsArena
 {
@@ -22,7 +23,7 @@ constexpr std::size_t RESULT_PACKET_SIZE = 16;
 constexpr std::size_t MAX_CREDITS_PER_FRAME = 32;
 constexpr std::size_t CREDIT_PACKET_SIZE = 8 + 12 * MAX_CREDITS_PER_FRAME;
 
-enum class TrackingState { Waiting, LocalMatch, Unsupported, Finished };
+enum class TrackingState { Waiting, LocalMatch, Unsupported, Finished, OnlineMatch };
 enum class EventKind { PercentChange, GameCredit };
 
 struct DamageEvent
@@ -51,6 +52,16 @@ struct Snapshot
 	std::deque<DamageEvent> credit_events; // Credit-only history for the visible log.
 	std::uint64_t total_credit_events = 0;
 	std::array<std::uint64_t, 4> damage_centi = {}; // Cumulative finalized attributed credits received.
+	bool online = false;
+	std::int32_t last_finalized_frame = -124;
+	std::uint16_t stage_id = 0;
+	std::uint32_t random_seed = 0;
+	std::string match_id;
+	std::uint32_t game_number = 0;
+	std::uint32_t tiebreak_number = 0;
+	std::array<std::uint8_t, 4> characters = {{255, 255, 255, 255}};
+	bool result_complete = false;
+	std::uint8_t game_end_method = 0;
 	bool teams = false;
 	std::array<std::uint8_t, 4> kinds = {{255, 255, 255, 255}};
 	std::array<std::uint8_t, 4> team_ids = {{255, 255, 255, 255}};
@@ -68,6 +79,8 @@ class Tracker
 {
 public:
 	void Process(const std::uint8_t* data, std::size_t length);
+	// Publish an incomplete terminal observation when an original online peer is lost.
+	void InterruptOnlineMatch();
 	void Stop();
 	Snapshot Read() const;
 
@@ -85,6 +98,7 @@ private:
 	void CreditBatch(const std::uint8_t* data, std::size_t length);
 	void Publish(const DamageEvent& event);
 	void MarkIncomplete();
+	void InterruptOnlineMatchLocked();
 	void ResultPacket(const std::uint8_t* data, std::size_t length);
 	struct CreditFrame
 	{
@@ -94,6 +108,7 @@ private:
 	mutable std::mutex m_mutex;
 	Snapshot m_snapshot;
 	std::array<bool, 4> m_active = {};
+	std::array<bool, 4> m_eliminated = {}; // Only a finalized zero-stock sample permits absence.
 	std::array<PlayerFrame, 4> m_previous = {};
 	std::map<std::int32_t, std::array<PlayerFrame, 4>> m_pending;
 	std::map<std::int32_t, CreditFrame> m_pending_credits;
@@ -128,11 +143,12 @@ struct GateView
 	// Funding follows actual roster/scene edits; transient prompt or polling gaps only revoke admission.
 	std::uint64_t lobby_generation = 0;
 	std::uint64_t scene_generation = 0;
-	std::uint64_t start_requests = 0; // Controller edges for non-blocking sidebar navigation.
+	std::uint64_t start_requests = 0; // Native controller edges, including outside character selection.
 };
 class PaymentGate
 {
 public:
+	void ObserveStart(std::size_t port, bool pressed);
 	bool Query(const std::uint8_t* packet, std::size_t length);
 	GateView Read() const;
 	bool Authorize(std::uint64_t generation);
@@ -144,7 +160,7 @@ private:
 	std::array<std::uint8_t, 13> m_selection = {};
 	std::chrono::steady_clock::time_point m_last_query = {};
 	bool m_enabled = true; // Missing UI/engine fails closed.
-	bool m_start_down = false;
+	std::array<bool, 4> m_start_down = {};
 };
 PaymentGate& GetPaymentGate();
 }

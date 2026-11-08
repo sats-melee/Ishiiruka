@@ -48,6 +48,16 @@ void Tracker::Start(const std::uint8_t* data, std::size_t length)
 	m_snapshot.winner_port = -1;
 	m_snapshot.winner_team = -1;
 	m_snapshot.winners = {};
+	m_snapshot.online = false;
+	m_snapshot.last_finalized_frame = -124;
+	m_snapshot.stage_id = 0;
+	m_snapshot.random_seed = 0;
+	m_snapshot.match_id.clear();
+	m_snapshot.game_number = 0;
+	m_snapshot.tiebreak_number = 0;
+	m_snapshot.characters.fill(255);
+	m_snapshot.result_complete = false;
+	m_snapshot.game_end_method = 0;
 	m_snapshot.teams = false;
 	m_snapshot.kinds.fill(255);
 	m_snapshot.team_ids.fill(255);
@@ -66,13 +76,26 @@ void Tracker::Start(const std::uint8_t* data, std::size_t length)
 	++m_snapshot.revision;
 	m_previous = {};
 	m_active = {};
+	m_eliminated = {};
 	m_pending.clear();
 	m_pending_credits.clear();
 	m_finalized = m_latest_received = -124;
-	// Offsets include the command byte. Modern local VS setup carries all four
-	// slot kinds and the authoritative match-start teams, independently of CSS.
-	if (length <= 0x1a4 || data[0x1a4] != 2 || data[0x0d] > 1)
+	// Offsets include the command byte; local/online use the same match setup.
+	if (length <= 0x1a4 || (data[0x1a4] != 2 && data[0x1a4] != 8) || data[0x0d] > 1)
 		return;
+	m_snapshot.online = data[0x1a4] == 8;
+	if (m_snapshot.online)
+	{
+		if (length < 0x2f9) return; // Online admission needs recorded match/game identity.
+		const char* id = reinterpret_cast<const char*>(data + 0x2be);
+		std::size_t size = 0;
+		while (size < 51 && id[size]) ++size;
+		m_snapshot.match_id.assign(id, size);
+		m_snapshot.game_number = Word(data + 0x2f1);
+		m_snapshot.tiebreak_number = Word(data + 0x2f5);
+	}
+	m_snapshot.stage_id = (std::uint16_t(data[0x13]) << 8) | data[0x14];
+	m_snapshot.random_seed = Word(data + 0x13d);
 	m_snapshot.teams = data[0x0d] != 0;
 	int players = 0;
 	unsigned sides = 0;
@@ -84,6 +107,7 @@ void Tracker::Start(const std::uint8_t* data, std::size_t length)
 		m_snapshot.kinds[i] = type;
 		m_active[i] = type < 2;
 		if (!m_active[i]) continue;
+		m_snapshot.characters[i] = data[0x65 + 0x24 * i];
 		++players;
 		if (m_snapshot.teams)
 		{
@@ -94,7 +118,7 @@ void Tracker::Start(const std::uint8_t* data, std::size_t length)
 		}
 	}
 	if (players >= 2 && (!m_snapshot.teams || (sides && (sides & (sides - 1)))))
-		m_snapshot.status = TrackingState::LocalMatch;
+		m_snapshot.status = m_snapshot.online ? TrackingState::OnlineMatch : TrackingState::LocalMatch;
 }
 
 void Tracker::Process(const std::uint8_t* data, std::size_t length)
@@ -109,12 +133,16 @@ void Tracker::Process(const std::uint8_t* data, std::size_t length)
 		Start(data, length);
 		return;
 	}
-	if (m_snapshot.status != TrackingState::LocalMatch)
+	if (m_snapshot.status != TrackingState::LocalMatch && m_snapshot.status != TrackingState::OnlineMatch)
 		return;
 	if (data[0] == 0x39)
 	{
 		m_snapshot.status = TrackingState::Finished;
 		m_snapshot.game_ended = true;
+		m_snapshot.game_end_method = length >= 2 ? data[1] : 0;
+		if (m_snapshot.online)
+			for (const auto& pending : m_pending_credits)
+				if (pending.second.overflow || !pending.second.events.empty()) MarkIncomplete();
 		// The private packet carries actual team standings. Individual replay
 		// placements cannot establish a team winner (notably on timeouts).
 		if (length >= 7 && m_result_seen)
@@ -130,7 +158,7 @@ void Tracker::Process(const std::uint8_t* data, std::size_t length)
 				}
 			}
 		}
-		else if (length >= 7 && !m_snapshot.teams && (data[1] == 1 || data[1] == 2 || data[1] == 3))
+		else if (length >= 7 && !m_snapshot.online && !m_snapshot.teams && (data[1] == 1 || data[1] == 2 || data[1] == 3))
 		{
 			int candidate = -1;
 			int winners = 0;
@@ -148,6 +176,8 @@ void Tracker::Process(const std::uint8_t* data, std::size_t length)
 				m_snapshot.winners[candidate] = true;
 			}
 		}
+		m_snapshot.result_complete = length >= 7 && m_result_seen && m_result_valid &&
+		    data[1] == m_result_method && m_snapshot.credit_stream_seen && !m_snapshot.credit_stream_incomplete;
 		GetPaymentGate().Reset();
 		m_pending.clear(); // Never promote speculative frames at game end.
 		m_pending_credits.clear();
@@ -199,6 +229,7 @@ void Tracker::Process(const std::uint8_t* data, std::size_t length)
 		m_pending[frame][data[5]] = player;
 		while (m_pending.size() > MAX_PENDING_FRAMES)
 		{
+			if (m_snapshot.online) MarkIncomplete();
 			m_pending_credits.erase(m_pending.begin()->first);
 			m_pending.erase(m_pending.begin());
 		}
@@ -330,17 +361,22 @@ void Tracker::CreditBatch(const std::uint8_t* data, std::size_t length)
 
 void Tracker::Finalize(std::int32_t frame)
 {
+	std::int64_t expected = std::int64_t(m_finalized) + 1;
 	for (auto it = m_pending.begin(); it != m_pending.end() && it->first <= frame;)
 	{
+		if (m_snapshot.online && it->first != expected) MarkIncomplete();
+		expected = std::int64_t(it->first) + 1;
 		for (std::size_t i = 0; i < 4; ++i)
 		{
 			const auto& current = it->second[i];
 			auto& previous = m_previous[i];
 			if (!current.present)
 			{
+				if (m_snapshot.online && m_active[i] && !m_eliminated[i]) MarkIncomplete();
 				previous.present = false;
 				continue;
 			}
+			m_eliminated[i] = current.stocks == 0;
 			// A reset, missing frame, stock loss, or first observation sets a fresh
 			// baseline. Never turn an unknown gap or a respawn into a hit.
 			if (previous.present && current.frame == previous.frame + 1 &&
@@ -355,6 +391,8 @@ void Tracker::Finalize(std::int32_t frame)
 			previous = current;
 		}
 		const auto credit = m_pending_credits.find(it->first);
+		if (m_snapshot.online && credit == m_pending_credits.end())
+			MarkIncomplete(); // Every online frame must carry even an empty replacement batch.
 		if (credit != m_pending_credits.end())
 		{
 			if (credit->second.overflow)
@@ -366,19 +404,43 @@ void Tracker::Finalize(std::int32_t frame)
 		}
 		it = m_pending.erase(it);
 	}
+	if (m_snapshot.online && expected <= frame) MarkIncomplete();
 	while (!m_pending_credits.empty() && m_pending_credits.begin()->first <= frame)
 	{
 		m_pending_credits.erase(m_pending_credits.begin());
 		MarkIncomplete(); // No ordinary frame data corroborated this batch's frame.
 	}
 	m_finalized = frame;
+	m_snapshot.last_finalized_frame = frame;
+}
+
+void Tracker::InterruptOnlineMatch()
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	InterruptOnlineMatchLocked();
+}
+
+void Tracker::InterruptOnlineMatchLocked()
+{
+	if (!m_snapshot.online || m_snapshot.status != TrackingState::OnlineMatch || m_snapshot.game_ended)
+		return;
+	MarkIncomplete();
+	m_snapshot.status = TrackingState::Finished;
+	m_snapshot.game_ended = true;
+	m_snapshot.result_complete = false;
+	m_snapshot.winner_port = m_snapshot.winner_team = -1;
+	m_snapshot.winners = {};
+	m_pending.clear();
+	m_pending_credits.clear();
+	++m_snapshot.revision;
 }
 
 void Tracker::Stop()
 {
 	GetPaymentGate().Reset();
 	std::lock_guard<std::mutex> lock(m_mutex);
-	if (m_snapshot.status == TrackingState::LocalMatch)
+	InterruptOnlineMatchLocked();
+	if (m_snapshot.status == TrackingState::LocalMatch || m_snapshot.status == TrackingState::OnlineMatch)
 	{
 		m_snapshot.status = TrackingState::Finished;
 		++m_snapshot.revision;
@@ -401,6 +463,13 @@ PaymentGate& GetPaymentGate()
 	static PaymentGate gate;
 	return gate;
 }
+void PaymentGate::ObserveStart(std::size_t port, bool pressed)
+{
+	if (port >= m_start_down.size()) return;
+	std::lock_guard<std::mutex> lock(m_mutex);
+	if (pressed && !m_start_down[port]) ++m_view.start_requests;
+	m_start_down[port] = pressed;
+}
 bool PaymentGate::Query(const std::uint8_t* packet, std::size_t length)
 {
 	std::lock_guard<std::mutex> lock(m_mutex);
@@ -414,7 +483,6 @@ bool PaymentGate::Query(const std::uint8_t* packet, std::size_t length)
 		m_view.lobby_generation = next_lobby;
 		m_view.scene_generation = next_scene;
 		m_view.start_requests = starts;
-		m_start_down = false;
 		m_selection = {};
 		return false;
 	};
@@ -429,11 +497,8 @@ bool PaymentGate::Query(const std::uint8_t* packet, std::size_t length)
 		++m_view.generation;
 		m_view.requested = false;
 		m_view.authorized = false;
-		m_start_down = false;
 	}
 	m_last_query = now;
-	if (packet[3] && !m_start_down) ++m_view.start_requests;
-	m_start_down = packet[3] != 0;
 	bool roster_valid = true;
 	int participants = 0;
 	unsigned sides = 0;
@@ -519,7 +584,6 @@ void PaymentGate::Reset()
 	m_view.lobby_generation = next_lobby;
 	m_view.scene_generation = next_scene;
 	m_view.start_requests = starts;
-	m_start_down = false;
 	m_selection = {};
 }
 void PaymentGate::Enable(bool enabled)

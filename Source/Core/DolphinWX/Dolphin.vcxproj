@@ -185,6 +185,7 @@
     <ClCompile Include="Frame.cpp" />
     <ClCompile Include="QR\qrcodegen.cpp" Condition="'$(Configuration)|$(Platform)'=='Release|x64' Or '$(Configuration)|$(Platform)'=='ReleasePlayback|x64'" />
     <ClCompile Include="SatsArenaLocal.cpp" Condition="'$(Configuration)|$(Platform)'=='Release|x64' Or '$(Configuration)|$(Platform)'=='ReleasePlayback|x64'" />
+    <ClCompile Include="SatsArenaOnline.cpp" Condition="'$(Configuration)|$(Platform)'=='Release|x64' Or '$(Configuration)|$(Platform)'=='ReleasePlayback|x64'" />
     <ClCompile Include="SatsArenaPanel.cpp" Condition="'$(Configuration)|$(Platform)'=='Release|x64' Or '$(Configuration)|$(Platform)'=='ReleasePlayback|x64'" />
     <ClCompile Include="FrameAui.cpp" />
     <ClCompile Include="FrameTools.cpp" />
@@ -243,6 +244,12 @@
     <ClInclude Include="NetPlay\NetPlaySetupFrame.h" />
     <ClInclude Include="NetPlay\PadMapDialog.h" />
     <ClInclude Include="resource.h" />
+    <ClInclude Include="SatsArenaLocal.h" />
+    <ClInclude Include="SatsArenaLocalLayout.h" />
+    <ClInclude Include="SatsArenaOnline.h" />
+    <ClInclude Include="SatsArenaPanel.h" />
+    <ClInclude Include="SatsArenaRoomView.h" />
+    <ClInclude Include="SatsArenaWidgets.h" />
     <ClInclude Include="AboutDolphin.h" />
     <ClInclude Include="Cheats\CheatSearchTab.h" />
     <ClInclude Include="Cheats\CheatsWindow.h" />

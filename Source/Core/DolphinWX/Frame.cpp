@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cstddef>
 #include <fstream>
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -33,6 +34,7 @@
 #include <wx/textctrl.h>
 #include <wx/thread.h>
 #include <wx/toolbar.h>
+#include <wx/utils.h>
 #include <Core/Slippi/SlippiNetplay.h>
 
 #include "AudioCommon/AudioCommon.h"
@@ -381,7 +383,19 @@ CFrame::CFrame(wxFrame *parent, wxWindowID id, const wxString &title, wxRect geo
 #ifdef SATS_ARENA
 	wxBoxSizer* arena_layout = new wxBoxSizer(wxHORIZONTAL);
 	arena_layout->Add(m_GamePanel, 1, wxEXPAND);
-	arena_layout->Add(new SatsArenaPanel(m_Panel), 0, wxEXPAND);
+#ifdef SATS_ARENA_LOCAL
+    m_arena_panel = new SatsArenaPanel(m_Panel);
+    arena_layout->Add(m_arena_panel, 0, wxEXPAND);
+    m_arena_panel->SetChangedCallback([this] { UpdateArenaPanelControls(); });
+    Bind(wxEVT_MENU, std::function<void(wxCommandEvent&)>([this](wxCommandEvent&) { ToggleArenaPanel(); }), IDM_ARENA_MULTIPLAYER_PANEL);
+    Bind(wxEVT_UPDATE_UI, std::function<void(wxUpdateUIEvent&)>([this](wxUpdateUIEvent& event) {
+        event.Check(m_arena_panel->IsExpanded());
+        UpdateArenaPanelControls();
+    }), IDM_ARENA_MULTIPLAYER_PANEL);
+    UpdateArenaPanelControls();
+#else
+    arena_layout->Add(new SatsArenaPanel(m_Panel), 0, wxEXPAND);
+#endif
 	m_Panel->SetSizer(arena_layout);
 #endif
 	// ---------------
@@ -1190,6 +1204,43 @@ void CFrame::OnMouse(wxMouseEvent &event)
 	event.Skip();
 }
 
+#ifdef SATS_ARENA_LOCAL
+void CFrame::ToggleArenaPanel()
+{
+    if (m_arena_panel) m_arena_panel->ToggleExpanded();
+}
+void CFrame::UpdateArenaPanelControls()
+{
+    if (!m_arena_panel) return;
+    if (auto* layout = static_cast<wxBoxSizer*>(m_Panel->GetSizer()))
+    {
+        const int orientation = m_arena_panel->UsesBottomStrip() ? wxVERTICAL : wxHORIZONTAL;
+        if (layout->GetOrientation() != orientation)
+        {
+            layout->SetOrientation(orientation);
+            m_Panel->Layout();
+        }
+    }
+    if (auto* menu = GetMenuBar())
+        if (menu->FindItem(IDM_ARENA_MULTIPLAYER_PANEL))
+            menu->Check(IDM_ARENA_MULTIPLAYER_PANEL, m_arena_panel->IsExpanded());
+    if (auto* toolbar = GetToolBar())
+        if (auto* tool = toolbar->FindById(IDM_ARENA_MULTIPLAYER_PANEL))
+        {
+            toolbar->ToggleTool(IDM_ARENA_MULTIPLAYER_PANEL, m_arena_panel->IsExpanded());
+            const wxString title = m_arena_panel->IsOnline() ? "Room" : "Match";
+            const wxString label = title + (m_arena_panel->NeedsAttention() ? " !" : "");
+            if (tool->GetLabel() != label)
+            {
+                tool->SetLabel(label);
+                toolbar->Realize();
+            }
+            toolbar->SetToolShortHelp(IDM_ARENA_MULTIPLAYER_PANEL,
+                m_arena_panel->Notice() + "\nShow/hide match panel (Ctrl+Shift+M)");
+        }
+}
+#endif
+
 void CFrame::DoFullscreen(bool enable_fullscreen)
 {
 	ToggleDisplayMode(enable_fullscreen);
@@ -1274,6 +1325,14 @@ const CGameListCtrl *CFrame::GetGameListCtrl() const
 
 void CFrame::PollHotkeys(wxTimerEvent &event)
 {
+#ifdef SATS_ARENA_LOCAL
+    // The native render surface can bypass wx accelerators in fullscreen.
+    const bool room_shortcut = m_arena_panel && IsActive() &&
+        wxGetKeyState(WXK_CONTROL) && wxGetKeyState(WXK_SHIFT) && !wxGetKeyState(WXK_ALT) &&
+        wxGetKeyState(static_cast<wxKeyCode>('M'));
+    if (room_shortcut && !m_room_shortcut_down) ToggleArenaPanel();
+    m_room_shortcut_down = room_shortcut;
+#endif
 	if (!HotkeyManagerEmu::IsEnabled())
 		return;
 

@@ -4,6 +4,7 @@
 #include "Common/Thread.h"
 #include "Core/Slippi/SlippiNetplay.h"
 #include "Core/Slippi/SlippiUser.h"
+#include "Core/Slippi/SatsArenaNetplayRoom.h"
 
 #ifndef _WIN32
 #include <netdb.h>
@@ -11,6 +12,7 @@
 #endif
 
 #include <string>
+#include <atomic>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -26,10 +28,14 @@ using json = nlohmann::json;
 // Rust side; this class owns the UDP socket that will be used for netplay, learns its public
 // address through STUN, keeps its NAT mapping alive while queued, and connects to the opponents
 // once a match arrives.
+class SatsArenaRoomClient;
+namespace SatsArenaNetplay { struct Room; }
+
 class SlippiMatchmaking
 {
   public:
-	SlippiMatchmaking(uintptr_t rs_exi_device_ptr, SlippiUser *user);
+	SlippiMatchmaking(uintptr_t rs_exi_device_ptr, SlippiUser *user,
+	                  std::shared_ptr<std::atomic<bool>> cleanup = nullptr);
 	~SlippiMatchmaking();
 
 	enum OnlinePlayMode
@@ -83,6 +89,8 @@ class SlippiMatchmaking
 
 	struct MatchmakeResult
 	{
+		bool arenaRoom = false;
+		SatsArenaNetplay::Config arenaConfig;
 		std::string id = "";
 		std::vector<SlippiUser::UserInfo> players;
 		std::vector<u16> stages;
@@ -95,6 +103,8 @@ class SlippiMatchmaking
 	bool IsSearching();
 	std::unique_ptr<SlippiNetplayClient> GetNetplayClient();
 	std::string GetErrorMessage();
+	std::string GetRoomCode();
+	bool ArenaRosterChanged();
 	int LocalPlayerIndex();
 	std::vector<SlippiUser::UserInfo> GetPlayerInfo();
 	std::string GetPlayerName(u8 port);
@@ -155,6 +165,9 @@ class SlippiMatchmaking
 	bool m_isHost;
 
 	std::unique_ptr<SlippiNetplayClient> m_netplayClient;
+	std::shared_ptr<SatsArenaRoomClient> m_roomClient;
+	std::shared_ptr<std::atomic<bool>> m_peerCleanup;
+	std::uint64_t m_roomRosterRevision = 0;
 
 	// A pointer to a "shadow" EXI Device that lives on the Rust side of things.
 	// Do *not* do any cleanup of this! The EXI device will handle it.
@@ -170,8 +183,11 @@ class SlippiMatchmaking
 
 	bool stunBindingRequest(const ENetAddress &server, SlippiStunObservation &result);
 	void sendStunKeepalive();
+	bool prepareArenaSocket(unsigned short port, bool discoverPublic, std::string& endpoint,
+	                        std::string& lanEndpoint);
 
 	void startMatchmaking();
+	void applyArenaRoom(const SatsArenaNetplay::Room& room);
 	void handleMatchmaking();
 	void handleConnecting();
 };

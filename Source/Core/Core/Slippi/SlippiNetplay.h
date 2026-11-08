@@ -152,6 +152,7 @@ class SlippiMatchInfo
 };
 
 class OnlinePlayMode;
+class SatsArenaRoomClient;
 class SlippiNetplayClient
 {
   public:
@@ -160,7 +161,7 @@ class SlippiNetplayClient
 
 	SlippiNetplayClient(bool isDecider); // Make a dummy client
 	SlippiNetplayClient(std::vector<std::string> addrs, std::vector<u16> ports, const u8 remotePlayerCount,
-	                    const u16 localPort, bool isDecider, u8 playerIdx);
+	                    const u16 localPort, bool isDecider, u8 playerIdx, ENetHost* boundHost = nullptr);
 	~SlippiNetplayClient();
 
 	// Slippi Online
@@ -228,6 +229,9 @@ class SlippiNetplayClient
 	Common::FifoQueue<std::unique_ptr<sf::Packet>, false> m_async_queue;
 
 	ENetHost *m_client = nullptr;
+	// Room metrics outlive GUI polls without exposing this client's network-thread state.
+	std::weak_ptr<SatsArenaRoomClient> m_arenaRoom;
+	void ClearArenaPing(int slot = -1);
 	std::vector<ENetPeer *> m_server;
 	std::thread m_thread;
 	u8 m_remotePlayerCount = 0;

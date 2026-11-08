@@ -1,9 +1,12 @@
 #include "SlippiMatchmaking.h"
+#include "SatsArenaNetplayRoom.h"
+#include "SatsArenaRoomClient.h"
 #include "Common/Common.h"
 #include "Common/ENetUtil.h"
 #include "Common/Logging/Log.h"
 #include "Common/StringUtil.h"
 #include "Common/Timer.h"
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -26,8 +29,10 @@ enum RustMmState
 	RUST_MM_FAILED = 4,
 };
 
-SlippiMatchmaking::SlippiMatchmaking(uintptr_t rs_exi_device_ptr, SlippiUser *user)
+SlippiMatchmaking::SlippiMatchmaking(uintptr_t rs_exi_device_ptr, SlippiUser *user,
+                                   std::shared_ptr<std::atomic<bool>> cleanup)
 {
+	m_peerCleanup = cleanup;
 	m_user = user;
 	m_state = ProcessState::IDLE;
 	m_errorMsg = "";
@@ -49,6 +54,7 @@ SlippiMatchmaking::~SlippiMatchmaking()
 		m_matchmakeThread.join();
 
 	terminateMmConnection();
+	std::atomic_store(&m_roomClient, std::shared_ptr<SatsArenaRoomClient>{});
 }
 
 void SlippiMatchmaking::FindMatch(MatchSearchSettings settings)
@@ -64,12 +70,40 @@ void SlippiMatchmaking::FindMatch(MatchSearchSettings settings)
 
 SlippiMatchmaking::ProcessState SlippiMatchmaking::GetMatchmakeState()
 {
+	auto client = std::atomic_load(&m_roomClient);
+	if (client)
+	{
+		SatsArenaNetplay::Room room;
+		std::string error;
+		const auto status = client->Poll(room, error);
+		if (status == SatsArenaRoomClient::Status::Closed || status == SatsArenaRoomClient::Status::Failed)
+		{
+			m_errorMsg = error;
+			m_state = ProcessState::ERROR_ENCOUNTERED;
+		}
+	}
 	return m_state;
+}
+
+bool SlippiMatchmaking::ArenaRosterChanged()
+{
+	auto client = std::atomic_load(&m_roomClient);
+	SatsArenaNetplay::Room room;
+	std::string error;
+	if (!client) return false;
+	client->Poll(room, error);
+	return m_roomRosterRevision != room.roster_revision;
 }
 
 std::string SlippiMatchmaking::GetErrorMessage()
 {
 	return m_errorMsg;
+}
+
+std::string SlippiMatchmaking::GetRoomCode()
+{
+	auto client = std::atomic_load(&m_roomClient);
+	return client ? client->GetRoomCode() : "";
 }
 
 bool SlippiMatchmaking::IsSearching()
@@ -269,9 +303,192 @@ void SlippiMatchmaking::sendStunKeepalive()
 	}
 }
 
+bool SlippiMatchmaking::prepareArenaSocket(unsigned short port, bool discoverPublic,
+                                           std::string& endpoint, std::string& lanEndpoint)
+{
+	ENetAddress bindAddress;
+	bindAddress.host = ENET_HOST_ANY;
+	bindAddress.port = port;
+	m_client = enet_host_create(&bindAddress, 10, 3, 0, 0);
+	if (!m_client)
+	{
+		m_errorMsg = "Cannot reserve the gameplay UDP port";
+		return false;
+	}
+	ENetAddress bound;
+	if (enet_socket_get_address(m_client->socket, &bound) != 0 || !bound.port)
+	{
+		m_errorMsg = "Cannot read the gameplay UDP port";
+		return false;
+	}
+	m_hostPort = bound.port;
+	if (!discoverPublic) return true;
+
+	SlippiStunObservation observations[2] = {};
+	for (const auto& server : STUN_SERVERS)
+	{
+		if (isMmTerminated) return false;
+		ENetAddress address;
+		if (enet_address_set_host(&address, server.first.c_str()) != 0) continue;
+		address.port = server.second;
+		auto& observation = observations[observations[0].answered ? 1 : 0];
+		if (!stunBindingRequest(address, observation)) continue;
+		if (!m_hasStunAddr) { m_stunAddr = address; m_hasStunAddr = true; }
+		if (observations[1].answered) break;
+	}
+	if (!observations[0].answered)
+	{
+		m_errorMsg = "Public UDP lookup failed. Check UDP access or configure a reachable endpoint.";
+		return false;
+	}
+	if (observations[1].answered &&
+	    (memcmp(observations[0].ip, observations[1].ip, 4) != 0 || observations[0].port != observations[1].port))
+	{
+		// Existing peer connection accepts an expected IP whose incoming port changed.
+		WARN_LOG(SLIPPI_ONLINE, "[Arena] UDP mapping varies by destination; direct connection may need port forwarding or a relay");
+	}
+	const auto& publicAddress = observations[0];
+	char text[32];
+	snprintf(text, sizeof(text), "%u.%u.%u.%u:%u", publicAddress.ip[0], publicAddress.ip[1],
+	         publicAddress.ip[2], publicAddress.ip[3], publicAddress.port);
+	endpoint = text;
+	SatsArenaNetplay::Player candidate;
+	if (!SatsArenaNetplay::Endpoint(endpoint, candidate))
+	{
+		m_errorMsg = "Public UDP lookup returned an invalid address";
+		return false;
+	}
+	const enet_uint32 localAddress = getLocalAddress(&m_stunAddr);
+	if (!localAddress)
+	{
+		m_errorMsg = "Cannot determine the local gameplay address";
+		return false;
+	}
+	snprintf(text, sizeof(text), "%s:%u", inet_ntoa(*(const struct in_addr*)&localAddress), m_hostPort);
+	lanEndpoint = text;
+	m_lastKeepaliveMs = Common::Timer::GetTimeMs();
+	NOTICE_LOG(SLIPPI_ONLINE, "[Arena] Public UDP mapping discovered from the reserved gameplay socket");
+	return true;
+}
+
+void SlippiMatchmaking::applyArenaRoom(const SatsArenaNetplay::Room& room)
+{
+	m_roomRosterRevision = room.roster_revision;
+	m_searchSettings.mode = room.config.teams ? TEAMS : DIRECT;
+	if (!SatsArenaNetplay::ServerEnabled()) m_hostPort = room.players[room.slot].port;
+	m_localPlayerIndex = room.slot;
+	m_isHost = room.slot == 0;
+	m_remoteIps.clear();
+	m_playerInfo.clear();
+	for (size_t slot = 0; slot < room.players.size(); ++slot)
+	{
+		if (static_cast<int>(slot) != room.slot)
+			m_remoteIps.push_back(SatsArenaNetplay::PeerEndpoint(room, slot));
+		SlippiUser::UserInfo player;
+		player.uid = "arena-lan-" + std::to_string(slot);
+		player.displayName = room.players[slot].name;
+		player.connectCode = "ARENA#" + std::to_string(slot);
+		player.port = slot + 1;
+		player.chatMessages = m_user->GetDefaultChatMessages();
+		m_playerInfo.push_back(player);
+	}
+	m_allowedStages = {0x2, 0x3, 0x8, 0x1C, 0x1F, 0x20};
+	m_mmResult.id = room.match_id;
+	m_mmResult.arenaRoom = true;
+	m_mmResult.arenaConfig = room.config;
+	m_mmResult.players = m_playerInfo;
+	m_mmResult.stages = m_allowedStages;
+	m_mmResult.items = 0;
+	m_state = ProcessState::OPPONENT_CONNECTING;
+	NOTICE_LOG(SLIPPI_ONLINE, "[Arena LAN] Room loaded; connecting slot %d", room.slot);
+}
+
 void SlippiMatchmaking::startMatchmaking()
 {
+	if (m_peerCleanup && !m_peerCleanup->load())
+	{
+		Common::SleepCurrentThread(50);
+		return;
+	}
 	m_client = nullptr;
+	if (SatsArenaNetplay::ServerEnabled())
+	{
+		auto existing = SatsArenaRoomClient::Active();
+		SatsArenaNetplay::Room existingRoom;
+		std::string existingError;
+		const auto existingStatus = existing ? existing->Poll(existingRoom, existingError) : SatsArenaRoomClient::Status::Closed;
+		if (existing && existingStatus != SatsArenaRoomClient::Status::Closed && existingStatus != SatsArenaRoomClient::Status::Failed)
+		{
+			std::string endpoint = existing->GameplayEndpoint();
+			std::string lanEndpoint = existing->LanEndpoint();
+			if (!prepareArenaSocket(existing->LocalPort(), !lanEndpoint.empty(), endpoint, lanEndpoint) ||
+			    endpoint != existing->GameplayEndpoint() || lanEndpoint != existing->LanEndpoint())
+			{
+				if (m_errorMsg.empty()) m_errorMsg = "Your network address changed. Leave and rejoin the room.";
+				m_state = ProcessState::ERROR_ENCOUNTERED;
+				return;
+			}
+			std::atomic_store(&m_roomClient, existing);
+			m_state = ProcessState::MATCHMAKING;
+			return;
+		}
+		if (m_searchSettings.mode != UNRANKED && m_searchSettings.mode != DIRECT)
+		{
+			m_errorMsg = "Choose Create Room or Join Room";
+			m_state = ProcessState::ERROR_ENCOUNTERED;
+			return;
+		}
+		const char* overrideEndpoint = std::getenv("SATS_ARENA_ROOM_ENDPOINT");
+		std::string endpoint = overrideEndpoint ? overrideEndpoint : "";
+		unsigned short port = SConfig::GetInstance().m_slippiForceNetplayPort ?
+		    SConfig::GetInstance().m_slippiNetplayPort : 41000 + generator() % 10000;
+		bool discoverPublic = endpoint.empty() && !SConfig::GetInstance().m_slippiForceLanIp;
+		if (!endpoint.empty())
+		{
+			SatsArenaNetplay::Player configured;
+			if (!SatsArenaNetplay::Endpoint(endpoint, configured))
+			{
+				m_errorMsg = "Invalid configured gameplay endpoint";
+				m_state = ProcessState::ERROR_ENCOUNTERED;
+				return;
+			}
+			if (!SConfig::GetInstance().m_slippiForceNetplayPort) port = configured.port;
+		}
+		else if (!discoverPublic) endpoint = SConfig::GetInstance().m_slippiLanIp + ":" + std::to_string(port);
+		std::string lanEndpoint;
+		if (!prepareArenaSocket(port, discoverPublic, endpoint, lanEndpoint))
+		{
+			m_state = ProcessState::ERROR_ENCOUNTERED;
+			return;
+		}
+		std::atomic_store(&m_roomClient, std::make_shared<SatsArenaRoomClient>(
+		    m_searchSettings.mode == UNRANKED, m_searchSettings.connectCode, endpoint, m_hostPort, lanEndpoint));
+		SatsArenaRoomClient::SetActive(std::atomic_load(&m_roomClient));
+		m_state = ProcessState::MATCHMAKING;
+		return;
+	}
+	if (SatsArenaNetplay::Enabled())
+	{
+		SatsArenaNetplay::Room room;
+		if (m_searchSettings.mode != DIRECT)
+			m_errorMsg = "LAN room testing requires Direct mode";
+		else if (SatsArenaNetplay::Load(room, m_errorMsg))
+		{
+			applyArenaRoom(room);
+		}
+		if (m_state != ProcessState::OPPONENT_CONNECTING)
+		{
+			m_state = ProcessState::ERROR_ENCOUNTERED;
+			ERROR_LOG(SLIPPI_ONLINE, "%s", m_errorMsg.c_str());
+		}
+		return;
+	}
+
+#ifdef SATS_ARENA
+	m_errorMsg = "Open Rooms from the launcher to configure the room server";
+	m_state = ProcessState::ERROR_ENCOUNTERED;
+	return;
+#endif
 
 	int retryCount = 0;
 
@@ -425,6 +642,26 @@ void SlippiMatchmaking::startMatchmaking()
 
 void SlippiMatchmaking::handleMatchmaking()
 {
+	if (SatsArenaNetplay::ServerEnabled())
+	{
+		if (m_hasStunAddr && Common::Timer::GetTimeMs() - m_lastKeepaliveMs >= STUN_KEEPALIVE_INTERVAL_MS)
+			sendStunKeepalive();
+		auto client = std::atomic_load(&m_roomClient);
+		SatsArenaNetplay::Room room;
+		std::string error;
+		const auto status = client->Poll(room, error);
+		if (status == SatsArenaRoomClient::Status::Started)
+			applyArenaRoom(room);
+		else if (status == SatsArenaRoomClient::Status::Failed || status == SatsArenaRoomClient::Status::Closed)
+		{
+			m_errorMsg = error;
+			m_state = ProcessState::ERROR_ENCOUNTERED;
+		}
+		else
+			Common::SleepCurrentThread(100);
+		return;
+	}
+
 	// Deal with class shut down
 	if (m_state != ProcessState::MATCHMAKING)
 		return;
@@ -805,8 +1042,10 @@ void SlippiMatchmaking::handleConnecting()
 	// INFO_LOG(SLIPPI_ONLINE, "[Matchmaking] My port: %d || %s", m_hostPort, ipLog.str());
 
 	// Is host is now used to specify who the decider is
+	ENetHost* boundHost = SatsArenaNetplay::ServerEnabled() ? m_client : nullptr;
+	if (boundHost) m_client = nullptr;
 	auto client = std::make_unique<SlippiNetplayClient>(addrs, ports, remotePlayerCount, m_hostPort, m_isHost,
-	                                                    m_localPlayerIndex);
+	                                                    m_localPlayerIndex, boundHost);
 
 	while (!m_netplayClient)
 	{
@@ -854,6 +1093,12 @@ void SlippiMatchmaking::handleConnecting()
 		}
 		else if (status != SlippiNetplayClient::SlippiConnectStatus::NET_CONNECT_STATUS_CONNECTED)
 		{
+			if (SatsArenaNetplay::Enabled())
+			{
+				m_errorMsg = "LAN room connection failed";
+				m_state = ProcessState::ERROR_ENCOUNTERED;
+				return;
+			}
 			ERROR_LOG(SLIPPI_ONLINE, "[Matchmaking] Connection attempt failed, looking for someone else.");
 
 			// Return to the start to get a new ticket to find someone else we can hopefully connect with

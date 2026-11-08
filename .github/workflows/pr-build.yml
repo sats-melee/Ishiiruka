@@ -48,7 +48,8 @@ jobs:
           git submodule update --init Externals/SlippiRustExtensions
           cd Externals/SlippiRustExtensions
           commit_id=$(git rev-parse HEAD)
-          git branch --contains $commit_id | grep main
+          git fetch origin main
+          git merge-base --is-ancestor "$commit_id" origin/main
 
   windows:
     needs: [skip_duplicates]
@@ -78,7 +79,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: sats-melee/sats-arena
-          ref: 3384425187b945e1b6b7e7e2dca3c4168e739137
+          ref: ece969c8b1235b63a6f52342c7e1d6787ec92409
           path: sats-arena
       - id: rust_ver
         name: Grab Rust Version
@@ -189,7 +190,7 @@ jobs:
           python Tools/ci/smoke-native-runtime.py \
             --binary "$app/Slippi Dolphin.exe" --checker "$app/sats-arena-wallet-check.exe" \
             --library "$app/sats_arena_local.dll" --slippi-library "$app/slippi_rust_extensions.dll" \
-            --output artifact/native-smoke.json --gui-load
+            --output artifact/native-smoke.json --gui-load --room-ui-load
       - name: "Publish"
         if: success()
         uses: actions/upload-artifact@v4
@@ -223,7 +224,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: sats-melee/sats-arena
-          ref: 3384425187b945e1b6b7e7e2dca3c4168e739137
+          ref: ece969c8b1235b63a6f52342c7e1d6787ec92409
           path: sats-arena
       - name: Check native release selection
         if: matrix.build_type == 'Netplay'
@@ -281,6 +282,9 @@ jobs:
           libfuse2 \
           xvfb \
           xauth
+      - name: Test Arena room contracts and recovery offline
+        if: matrix.build_type == 'Netplay'
+        run: bash Tools/arena/test.sh
       - id: rust_ver
         name: Grab Rust Version
         shell: bash
@@ -328,7 +332,7 @@ jobs:
           xvfb-run -a python3 Tools/ci/smoke-native-runtime.py \
             --binary "$app/usr/bin/dolphin-emu" --checker "$app/usr/bin/sats-arena-wallet-check" \
             --library "$app/usr/lib/libsats_arena_local.so" --slippi-library "$app/usr/lib/libslippi_rust_extensions.so" \
-            --output artifact/native-smoke.json --gui-load
+            --output artifact/native-smoke.json --gui-load --room-ui-load
       - name: "Publish"
         if: success()
         uses: actions/upload-artifact@v4
@@ -362,7 +366,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: sats-melee/sats-arena
-          ref: 3384425187b945e1b6b7e7e2dca3c4168e739137
+          ref: ece969c8b1235b63a6f52342c7e1d6787ec92409
           path: sats-arena
       - name: 'Fetch Git Tags'
         if: success()
@@ -506,7 +510,7 @@ jobs:
           python3 Tools/ci/smoke-native-runtime.py \
             --binary "$app/Contents/MacOS/Slippi Dolphin" --checker "$app/Contents/MacOS/sats-arena-wallet-check" \
             --library "$app/Contents/Frameworks/libsats_arena_local.dylib" --slippi-library "$app/Contents/Frameworks/libslippi_rust_extensions.dylib" \
-            --output artifact/native-smoke.json --gui-load
+            --output artifact/native-smoke.json --gui-load --room-ui-load
       - name: "Publish"
         if: success()
         uses: actions/upload-artifact@v4

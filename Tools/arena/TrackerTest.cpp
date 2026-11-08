@@ -149,9 +149,9 @@ void UnsupportedAndTruncated()
 	Feed(tracker, {0x36});
 	Check(tracker.Read().status == SatsArena::TrackingState::Unsupported, "short header accepted");
 	auto start = Start();
-	start[0x1a4] = 8;
+	start[0x1a4] = 9;
 	Feed(tracker, start);
-	Check(tracker.Read().status == SatsArena::TrackingState::Unsupported, "online accepted");
+	Check(tracker.Read().status == SatsArena::TrackingState::Unsupported, "unsupported scene accepted");
 	start = Start(); start[0x0d] = 1;
 	Feed(tracker, start);
 	Check(tracker.Read().status == SatsArena::TrackingState::Unsupported, "single-side teams accepted");
@@ -349,6 +349,206 @@ Bytes Result(const Bytes& start, int mask, int team = 255, int method = 2)
 	return result;
 }
 
+Bytes OnlineStart()
+{
+	auto start = Start();
+	start.resize(0x2f9);
+	start[0x1a4] = 8;
+	start[0x13] = 0; start[0x14] = 2;
+	Word(start, 0x13d, 0x12345678);
+	start[0x65] = 17; start[0x65 + 0x24] = 8;
+	const char id[] = "0123456789abcdef0123456789abcdef";
+	std::memcpy(start.data() + 0x2be, id, sizeof(id));
+	Word(start, 0x2f1, 1);
+	return start;
+}
+
+void BeginOnline(Tracker& tracker, const Bytes& start)
+{
+	Feed(tracker, start);
+	for (int frame = -123; frame < 0; ++frame)
+	{
+		for (int player = 0; player < 4; ++player)
+			if (start[0x66 + player * 0x24] < 2) Feed(tracker, Post(frame, player, 0));
+		Feed(tracker, Credits(frame, 0, true));
+		Book(tracker, frame, frame);
+	}
+}
+
+void OnlineCreditsAndFinality()
+{
+	Tracker tracker;
+	const auto start = OnlineStart();
+	BeginOnline(tracker, start);
+	auto state = tracker.Read();
+	Check(state.status == SatsArena::TrackingState::OnlineMatch && state.online,
+	      "online game not distinguished from local admission");
+	Check(state.stage_id == 2 && state.random_seed == 0x12345678 && state.game_number == 1 &&
+	      state.match_id == "0123456789abcdef0123456789abcdef" && state.characters[0] == 17 && state.characters[1] == 8,
+	      "online manifest metadata decoding");
+	Sample(tracker, 0, 0, 0); Feed(tracker, Credits(0, 0, true)); Book(tracker, 0, 0);
+	Sample(tracker, 1, 0, 10); Feed(tracker, Credits(1, 10)); Book(tracker, 1, 0);
+	Sample(tracker, 2, 0, 25); Feed(tracker, Credits(2, 15)); Book(tracker, 2, 0);
+	Check(tracker.Read().total_credit_events == 0, "online predictions were paid");
+	// Rollback replaces the old hit and removes the following predicted frame.
+	Bytes frameStart(5); frameStart[0] = 0x3a; Word(frameStart, 1, 1); Feed(tracker, frameStart);
+	Sample(tracker, 1, 0, 4); Feed(tracker, Credits(1, 4)); Book(tracker, 1, 0);
+	Word(frameStart, 1, 2); Feed(tracker, frameStart);
+	Sample(tracker, 2, 0, 4); Feed(tracker, Credits(2, 0, true)); Book(tracker, 2, 2);
+	state = tracker.Read();
+	Check(state.total_credit_events == 1 && state.credit_events.front().amount == 4 &&
+	      state.credit_events.front().sequence == 1 && state.last_finalized_frame == 2 &&
+	      !state.credit_stream_incomplete, "online rollback replacement or finalized prefix failed");
+	// Replayed finalized frames cannot mutate the paid prefix.
+	Feed(tracker, Credits(1, 99)); Book(tracker, 2, 2);
+	Check(tracker.Read().total_credit_events == 1, "online finalized duplicate was paid");
+	Feed(tracker, Result(start, 1)); Feed(tracker, {0x39, 2, 255, 0, 1, 255, 255});
+	state = tracker.Read();
+	Check(state.status == SatsArena::TrackingState::Finished && state.online && state.game_ended &&
+	      state.game_end_method == 2 && state.result_complete && state.winner_port == 0,
+	      "online confirmed result was not published");
+
+	BeginOnline(tracker, start);
+	Sample(tracker, 0, 0, 0); Feed(tracker, Credits(0, 0, true)); Book(tracker, 0, 0);
+	Sample(tracker, 1, 0, 8); Feed(tracker, Credits(1, 8)); Book(tracker, 1, 0);
+	Feed(tracker, Result(start, 1)); Feed(tracker, {0x39, 2, 255, 0, 1, 255, 255});
+	state = tracker.Read();
+	Check(state.total_credit_events == 0 && state.credit_stream_incomplete && !state.result_complete,
+	      "normal online end silently omitted unfinalized damage");
+
+	BeginOnline(tracker, start);
+	Sample(tracker, 0, 0, 0); Feed(tracker, Credits(0, 0, true)); Book(tracker, 0, 0);
+	Sample(tracker, 1, 0, 8); Feed(tracker, Credits(1, 8)); Book(tracker, 1, 0);
+	Feed(tracker, {0x39, 7, 1, 255, 255, 255, 255});
+	state = tracker.Read();
+	Check(state.total_credit_events == 0 && state.winner_port < 0 && !state.result_complete &&
+	      state.credit_stream_incomplete && state.game_end_method == 7,
+	      "online quit promoted predictions or invented a winner");
+
+	BeginOnline(tracker, start);
+	Sample(tracker, 0, 0, 0); Book(tracker, 0, 0);
+	Check(tracker.Read().credit_stream_incomplete, "missing online E6 batch accepted");
+	Feed(tracker, Result(start, 1)); Feed(tracker, {0x39, 2, 255, 0, 1, 255, 255});
+	Check(!tracker.Read().result_complete, "incomplete online capture authorized a result");
+	// A lost frame or one missing participant cannot look like a complete zero-credit stream.
+	BeginOnline(tracker, start);
+	Sample(tracker, 0, 0, 0); Feed(tracker, Credits(0, 0, true)); Book(tracker, 0, 0);
+	Sample(tracker, 2, 0, 0); Feed(tracker, Credits(2, 0, true)); Book(tracker, 2, 2);
+	Check(tracker.Read().credit_stream_incomplete, "missing complete online frame accepted");
+	BeginOnline(tracker, start);
+	Feed(tracker, Post(0, 0, 0)); Feed(tracker, Credits(0, 0, true)); Book(tracker, 0, 0);
+	Check(tracker.Read().credit_stream_incomplete, "missing online player sample accepted");
+	BeginOnline(tracker, start);
+	Sample(tracker, 0, 0, 0); Feed(tracker, Credits(0, 0, true)); Book(tracker, 1, 1);
+	Check(tracker.Read().credit_stream_incomplete, "finality advanced past absent online frame");
+	BeginOnline(tracker, start); tracker.Stop();
+	Check(tracker.Read().status == SatsArena::TrackingState::Finished && tracker.Read().online &&
+	      tracker.Read().game_ended && tracker.Read().credit_stream_incomplete &&
+	      !tracker.Read().result_complete && tracker.Read().winner_port < 0,
+	      "online stop did not publish an incomplete terminal observation");
+	Feed(tracker, Start());
+	Check(!tracker.Read().online && tracker.Read().last_finalized_frame == -124 &&
+	      tracker.Read().match_id.empty(), "local game retained online identity");
+}
+
+Bytes OnlineRoster(int players, bool teams = false)
+{
+	auto start = OnlineStart();
+	start[0x0d] = teams;
+	for (int player = 0; player < 4; ++player)
+	{
+		start[0x66 + player * 0x24] = player < players ? 0 : 3;
+		start[0x6e + player * 0x24] = player % 2;
+	}
+	return start;
+}
+
+void RosterSamples(Tracker& tracker, int frame, const std::array<int, 4>& stocks)
+{
+	for (int player = 0; player < 4; ++player)
+		if (stocks[player] >= 0) Feed(tracker, Post(frame, player, 0, 0, stocks[player]));
+}
+
+void OnlineEliminationAndTeamStockShare()
+{
+	Tracker tracker;
+	for (int players : {3, 4})
+	{
+		for (int eliminated = 0; eliminated < players; ++eliminated)
+		{
+			const auto start = OnlineRoster(players);
+			BeginOnline(tracker, start);
+			std::array<int, 4> stocks = {{4, 4, 4, players == 4 ? 4 : -1}};
+			stocks[eliminated] = 0;
+			RosterSamples(tracker, 0, stocks);
+			Feed(tracker, Credits(0, 0, true)); Book(tracker, 0, 0);
+			stocks[eliminated] = -1;
+			RosterSamples(tracker, 1, stocks);
+			const int attacker = eliminated == 0 ? 1 : 0;
+			int victim = 0;
+			while (victim == attacker || victim == eliminated) ++victim;
+			auto hit = Credits(1, 7); hit[8] = attacker; hit[10] = victim;
+			Feed(tracker, hit); Book(tracker, 1, 1);
+			RosterSamples(tracker, 2, stocks);
+			Feed(tracker, Credits(2, 0, true)); Book(tracker, 2, 2);
+			Check(!tracker.Read().credit_stream_incomplete && tracker.Read().total_credit_events == 1,
+			      "eliminated online fighter absence blocked remaining players' finalized credits");
+			Feed(tracker, Result(start, 1 << attacker)); Feed(tracker, {0x39, 2, 255, 0, 1, 2, 3});
+			Check(tracker.Read().result_complete && tracker.Read().winner_port == attacker,
+			      "eliminated fighter prevented complete three/four-player settlement");
+		}
+	}
+	const auto teams = OnlineRoster(4, true);
+	BeginOnline(tracker, teams);
+	RosterSamples(tracker, 0, {{4, 4, 0, 4}}); Feed(tracker, Credits(0, 0, true)); Book(tracker, 0, 0);
+	RosterSamples(tracker, 1, {{4, 4, -1, 4}}); Feed(tracker, Credits(1, 0, true)); Book(tracker, 1, 1);
+	// A teammate shares a stock: the returned fighter is live and required again.
+	RosterSamples(tracker, 2, {{3, 4, 1, 4}}); Feed(tracker, Credits(2, 0, true)); Book(tracker, 2, 2);
+	RosterSamples(tracker, 3, {{3, 4, 1, 4}}); Feed(tracker, Credits(3, 2)); Book(tracker, 3, 3);
+	Check(!tracker.Read().credit_stream_incomplete && tracker.Read().total_credit_events == 1,
+	      "team stock sharing did not resume normal complete capture");
+	RosterSamples(tracker, 4, {{3, 4, -1, 4}}); Feed(tracker, Credits(4, 0, true)); Book(tracker, 4, 4);
+	Check(tracker.Read().credit_stream_incomplete,
+	      "a returned live team fighter was still treated as eliminated");
+	BeginOnline(tracker, teams);
+	RosterSamples(tracker, 0, {{4, 4, 4, -1}}); Feed(tracker, Credits(0, 0, true)); Book(tracker, 0, 0);
+	Check(tracker.Read().credit_stream_incomplete, "missing live fourth fighter accepted");
+	Feed(tracker, teams);
+	RosterSamples(tracker, -123, {{4, 4, 4, -1}});
+	Feed(tracker, Credits(-123, 0, true)); Book(tracker, -123, -123);
+	Check(tracker.Read().credit_stream_incomplete, "initial absent fighter inferred eliminated");
+	BeginOnline(tracker, teams);
+	RosterSamples(tracker, 0, {{4, 4, 4, 0}}); Feed(tracker, Credits(0, 0, true)); Book(tracker, 0, -1);
+	Bytes rewind(5); rewind[0] = 0x3a; Word(rewind, 1, 0); Feed(tracker, rewind);
+	RosterSamples(tracker, 0, {{4, 4, 4, -1}}); Feed(tracker, Credits(0, 0, true)); Book(tracker, 0, 0);
+	Check(tracker.Read().credit_stream_incomplete, "predicted elimination permitted a missing live fighter");
+}
+
+void OnlineInterruption()
+{
+	Tracker tracker;
+	tracker.InterruptOnlineMatch();
+	Check(!tracker.Read().credit_stream_incomplete, "idle tracker interrupted");
+	Feed(tracker, Start()); tracker.InterruptOnlineMatch();
+	Check(tracker.Read().status == SatsArena::TrackingState::LocalMatch, "local match interrupted as online");
+	BeginOnline(tracker, OnlineRoster(4));
+	RosterSamples(tracker, 0, {{4, 4, 4, 4}}); Feed(tracker, Credits(0, 3)); Book(tracker, 0, 0);
+	RosterSamples(tracker, 1, {{4, 4, 4, 4}}); Feed(tracker, Credits(1, 99)); Book(tracker, 1, 0);
+	tracker.InterruptOnlineMatch();
+	const auto interrupted = tracker.Read();
+	Check(interrupted.game_ended && interrupted.credit_stream_incomplete && !interrupted.result_complete &&
+	      interrupted.status == SatsArena::TrackingState::Finished && interrupted.winner_port < 0 &&
+	      interrupted.total_credit_events == 1 && interrupted.credit_events.front().amount == 3,
+	      "peer disconnect did not retain only the agreed finalized prefix");
+	tracker.InterruptOnlineMatch(); tracker.Stop();
+	Check(tracker.Read().revision == interrupted.revision, "stale finished match interrupted again");
+	BeginOnline(tracker, OnlineStart());
+	Feed(tracker, Result(OnlineStart(), 1)); Feed(tracker, {0x39, 2, 255, 0, 1, 255, 255});
+	tracker.InterruptOnlineMatch(); tracker.Stop();
+	Check(tracker.Read().result_complete && !tracker.Read().credit_stream_incomplete,
+	      "disconnect after normal completion invalidated the agreed result");
+}
+
 void ExpandedRosterAndResults()
 {
 	Tracker tracker;
@@ -511,6 +711,9 @@ int main(int argc, char** argv)
 	BoundedAndConcurrent();
 	CreditDiagnostics();
 	RecentCreditHistory();
+	OnlineCreditsAndFinality();
+	OnlineEliminationAndTeamStockShare();
+	OnlineInterruption();
 	ExpandedRosterAndResults();
 	OrderedFinancialHandoff();
 	std::cout << "PASS: finalization, rollback, duplicates, resets, invalid data, credits, ordered credit history, bounds, concurrency\n";

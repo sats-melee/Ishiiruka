@@ -10,6 +10,34 @@ static void Check(bool ok, const char* message)
 }
 int main()
 {
+	{
+		SatsArena::PaymentGate navigation;
+		for (std::size_t port = 0; port < 4; ++port)
+		{
+			navigation.ObserveStart(port, true);
+			Check(navigation.Read().start_requests == port + 1, "every port publishes Start without CSS telemetry");
+			navigation.ObserveStart(port, true);
+			Check(navigation.Read().start_requests == port + 1, "holding Start counts once per port");
+		}
+		Check(!navigation.Read().requested && !navigation.Read().authorized, "sidebar Start never requests or grants admission");
+		navigation.ObserveStart(4, true);
+		Check(navigation.Read().start_requests == 4, "invalid controller port ignored");
+		navigation.Reset();
+		navigation.ObserveStart(0, true);
+		Check(navigation.Read().start_requests == 4, "scene reset preserves held Start and navigation counter");
+		navigation.ObserveStart(0, false);
+		navigation.ObserveStart(0, true);
+		Check(navigation.Read().start_requests == 5, "release and repress works while other ports hold Start");
+		std::array<std::uint8_t, 20> css = {{0xe7,2,0,0,0,0,3,3,1,2,0,0,0,255,255,255,255,0,0,0}};
+		navigation.Query(css.data(), css.size());
+		Check(navigation.Read().start_requests == 5, "CSS cooldown does not hide native Start");
+		css[3] = 1;
+		navigation.Query(css.data(), css.size());
+		Check(navigation.Read().start_requests == 5, "CSS telemetry does not double-count native Start");
+		navigation.Query(nullptr, 0);
+		navigation.ObserveStart(0, true);
+		Check(navigation.Read().start_requests == 5, "invalid CSS telemetry cannot invent a new controller edge");
+	}
 	SatsArena::PaymentGate gate;
 	std::array<std::uint8_t, 20> query = {{0xe7,2,0,0,0,0,3,3,1,2,0,0,0,255,255,255,255,0,0,0}};
 	Check(!gate.Query(query.data(), query.size()), "not ready");
@@ -28,16 +56,15 @@ int main()
 	query[3] = 1;
 	Check(!gate.Query(query.data(), query.size()), "unpaid start blocked");
 	Check(gate.Read().requested, "start is latched");
-	Check(gate.Read().start_requests == 1, "sidebar sees the controller Start edge");
 	gate.Query(query.data(), query.size());
-	Check(gate.Read().start_requests == 1, "holding Start is one sidebar request");
 	query[3] = 0;
 	Check(!gate.Query(query.data(), query.size()), "latched start remains unpaid");
 	query[3] = 1;
 	gate.Query(query.data(), query.size());
-	Check(gate.Read().start_requests == 2, "another Start press is visible even while admission is latched");
 	query[3] = 0;
 	Check(gate.Authorize(current_ready), "worker acknowledgement grants current selection");
+	gate.ObserveStart(2, true);
+	Check(gate.Read().authorized && gate.Read().generation == current_ready, "sidebar Start preserves an existing admission grant");
 	Check(gate.Query(query.data(), query.size()), "paid start continues without another press");
 	std::this_thread::sleep_for(std::chrono::milliseconds(550));
 	Check(!gate.Read().ready, "sidebar hides funding after CSS polling stops");
@@ -160,5 +187,5 @@ int main()
 	tracker.Process(start.data(), start.size());
 	tracker.Stop();
 	Check(!tracker.Read().game_ended && tracker.Read().winner_port == -1, "stop is not a game result");
-	std::cout << "PASS: prompt gate, queued Start, stale authorization, v2 roster/teams/CPU, stale-team grants, reset, match results\n";
+	std::cout << "PASS: native Start on all ports without CSS, prompt gate, queued Start, stale authorization, v2 roster/teams/CPU, stale-team grants, reset, match results\n";
 }

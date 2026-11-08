@@ -8,6 +8,9 @@
 #include <utility>
 
 #include "Core/Core.h"
+#ifdef SATS_ARENA_LOCAL
+#include "Core/Slippi/SatsArenaNetplayRoom.h"
+#endif
 #include "DolphinWX/Globals.h"
 #include "DolphinWX/WxEventUtils.h"
 #include "DolphinWX/WxUtils.h"
@@ -135,6 +138,11 @@ void MainToolBar::ApplyThemeBitmaps()
 	for (const auto& entry : bitmap_entries)
 		ApplyBitmap(entry.first, entry.second);
 
+#ifdef SATS_ARENA_LOCAL
+    if (FindById(IDM_ARENA_MULTIPLAYER_PANEL))
+        ApplyBitmap(IDM_ARENA_MULTIPLAYER_PANEL, TOOLBAR_CONTROLLER);
+#endif
+
 	// Separate, as the play button is dual-state and doesn't have a fixed bitmap.
 	RefreshPlayButton();
 }
@@ -174,6 +182,13 @@ void MainToolBar::AddToolBarButtons()
 
 void MainToolBar::AddMainToolBarButtons()
 {
+#ifdef SATS_ARENA_LOCAL
+    AddCheckTool(IDM_ARENA_MULTIPLAYER_PANEL, SatsArenaNetplay::ServerEnabled() ? "Room" : "Match",
+                 m_icon_bitmaps[TOOLBAR_CONTROLLER], wxNullBitmap,
+                 "Show/hide match panel (Ctrl+Shift+M)");
+    ToggleTool(IDM_ARENA_MULTIPLAYER_PANEL, true);
+    AddSeparator();
+#endif
 	AddToolBarButton(wxID_OPEN, TOOLBAR_FILEOPEN, _("Open"), _("Open file..."));
 	AddToolBarButton(wxID_REFRESH, TOOLBAR_REFRESH, _("Refresh"), _("Refresh game list"));
 	AddSeparator();

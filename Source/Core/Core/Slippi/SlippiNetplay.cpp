@@ -9,6 +9,7 @@
 #include "Common/Timer.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
+#include "Core/Slippi/SatsArenaRoomClient.h"
 #include "SlippiPremadeText.h"
 #include "VideoCommon/OnScreenDisplay.h"
 #include "VideoCommon/VideoConfig.h"
@@ -44,6 +45,7 @@ SlippiNetplayClient::~SlippiNetplayClient()
 	m_do_loop.Clear();
 	if (m_thread.joinable())
 		m_thread.join();
+	ClearArenaPing();
 
 	if (!m_server.empty())
 	{
@@ -67,7 +69,8 @@ SlippiNetplayClient::~SlippiNetplayClient()
 
 // called from ---SLIPPI EXI--- thread
 SlippiNetplayClient::SlippiNetplayClient(std::vector<std::string> addrs, std::vector<u16> ports,
-                                         const u8 remotePlayerCount, const u16 localPort, bool isDecider, u8 playerIdx)
+                                         const u8 remotePlayerCount, const u16 localPort, bool isDecider, u8 playerIdx,
+                                         ENetHost* boundHost)
 #ifdef _WIN32
     : m_qos_handle(nullptr)
     , m_qos_flow_id(0)
@@ -78,6 +81,12 @@ SlippiNetplayClient::SlippiNetplayClient(std::vector<std::string> addrs, std::ve
 	this->isDecider = isDecider;
 	this->m_remotePlayerCount = remotePlayerCount;
 	this->playerIdx = playerIdx;
+	const auto room = SatsArenaRoomClient::Active();
+	if (room && room->LocalSlot() == playerIdx)
+	{
+		m_arenaRoom = room;
+		ClearArenaPing();
+	}
 
 	// Set up remote player data structures
 	int j = 0;
@@ -115,11 +124,14 @@ SlippiNetplayClient::SlippiNetplayClient(std::vector<std::string> addrs, std::ve
 	}
 
 	// TODO: Figure out how to use a local port when not hosting without accepting incoming connections
-	m_client = enet_host_create(localAddr, 10, 3, 0, 0);
+	// Room discovery hands over the socket that created the public NAT mapping.
+	m_client = boundHost ? boundHost : enet_host_create(localAddr, 10, 3, 0, 0);
 
 	if (m_client == nullptr)
 	{
-		PanicAlertT("Couldn't Create Client");
+		ERROR_LOG(SLIPPI_ONLINE, "Could not create netplay host on port %u", localPort);
+		slippiConnectStatus.store(SlippiConnectStatus::NET_CONNECT_STATUS_FAILED, std::memory_order_release);
+		return;
 	}
 
 	for (int i = 0; i < remotePlayerCount; i++)
@@ -130,6 +142,12 @@ SlippiNetplayClient::SlippiNetplayClient(std::vector<std::string> addrs, std::ve
 		// INFO_LOG(SLIPPI_ONLINE, "Set ENet host, addr = %x, port = %d", addr.host, addr.port);
 
 		ENetPeer *peer = enet_host_connect(m_client, &addr, 3, 0);
+		if (peer == nullptr)
+		{
+			ERROR_LOG(SLIPPI_ONLINE, "Could not create netplay peer");
+			slippiConnectStatus.store(SlippiConnectStatus::NET_CONNECT_STATUS_FAILED, std::memory_order_release);
+			return;
+		}
 		m_server.push_back(peer);
 
 		// Store this connection
@@ -140,15 +158,6 @@ SlippiNetplayClient::SlippiNetplayClient(std::vector<std::string> addrs, std::ve
 		activeConnections[keyStrm.str()][peer] = connInfo;
 		playerActive[connInfo.playerIdx].store(true, std::memory_order_release);
 
-		if (peer == nullptr)
-		{
-			PanicAlertT("Couldn't create peer.");
-		}
-		else
-		{
-			// INFO_LOG(SLIPPI_ONLINE, "Connecting to ENet host, addr = %x, port = %d", peer->address.host,
-			//         peer->address.port);
-		}
 	}
 
 	slippiConnectStatus.store(SlippiConnectStatus::NET_CONNECT_STATUS_INITIATED, std::memory_order_release);
@@ -431,16 +440,38 @@ unsigned int SlippiNetplayClient::OnData(sf::Packet &packet, ENetPeer *peer)
 		pingUs[pIdx] = Common::Timer::GetTimeUs() - sendTime;
 		pingSampleSumUs.fetch_add(pingUs[pIdx], std::memory_order_relaxed);
 		pingSampleCount.fetch_add(1, std::memory_order_relaxed);
-		if (g_ActiveConfig.bShowNetPlayPing && frame % SLIPPI_PING_DISPLAY_INTERVAL == 0 && pIdx == 0)
+		const auto room = m_arenaRoom.lock();
+		if (room && packetPlayerPort != playerIdx && packetPlayerPort < SLIPPI_PLAYER_COUNT_MAX &&
+		    playerActive[packetPlayerPort].load(std::memory_order_acquire))
+			room->ReportPeerPing(packetPlayerPort, pingUs[pIdx]);
+		if ((room || g_ActiveConfig.bShowNetPlayPing) && frame % SLIPPI_PING_DISPLAY_INTERVAL == 0 && pIdx == 0)
 		{
 			std::stringstream pingDisplay;
-			pingDisplay << "Ping: " << (pingUs[0] / 1000);
-			for (int i = 1; i < m_remotePlayerCount; i++)
+			u32 colour = OSD::Color::CYAN;
+			if (room)
 			{
-				pingDisplay << " | " << (pingUs[i] / 1000);
+				const auto pings = room->PeerPings();
+				if (!pings.active)
+				{
+					OSD::AddTypedMessage(OSD::MessageType::NetPlayPing, "", 0);
+					break;
+				}
+				const auto worst = pings.WorstMilliseconds(playerIdx, m_remotePlayerCount + 1);
+				pingDisplay << "Peer ping: ";
+				if (worst) pingDisplay << worst << " ms";
+				else pingDisplay << "--";
+				if (worst >= 150) pingDisplay << " | HIGH";
+				if (worst >= 200) colour = OSD::Color::RED;
+				else if (worst >= 100) colour = OSD::Color::YELLOW;
 			}
-			OSD::AddTypedMessage(OSD::MessageType::NetPlayPing, pingDisplay.str(), OSD::Duration::NORMAL,
-			                     OSD::Color::CYAN);
+			else
+			{
+				pingDisplay << "Ping: " << (pingUs[0] / 1000) << " ms";
+				for (int i = 1; i < m_remotePlayerCount; i++)
+					pingDisplay << " | " << (pingUs[i] / 1000) << " ms";
+			}
+			OSD::AddTypedMessage(OSD::MessageType::NetPlayPing, pingDisplay.str(), room ? OSD::Duration::SHORT : OSD::Duration::NORMAL,
+			                     colour);
 		}
 	}
 	break;
@@ -702,8 +733,18 @@ void SlippiNetplayClient::Send(sf::Packet &packet)
 	}
 }
 
+void SlippiNetplayClient::ClearArenaPing(int slot)
+{
+	if (const auto room = m_arenaRoom.lock())
+	{
+		room->ClearPeerPing(slot);
+		OSD::AddTypedMessage(OSD::MessageType::NetPlayPing, "", 0);
+	}
+}
+
 void SlippiNetplayClient::Disconnect()
 {
+	ClearArenaPing();
 	ENetEvent netEvent;
 	slippiConnectStatus.store(SlippiConnectStatus::NET_CONNECT_STATUS_DISCONNECTED, std::memory_order_release);
 	if (activeConnections.empty())
@@ -1073,6 +1114,7 @@ void SlippiNetplayClient::ThreadFunc()
 				{
 					auto playerIdxForKey = activeConnections[key][netEvent.peer].playerIdx;
 					playerActive[playerIdxForKey].store(false, std::memory_order_release);
+					ClearArenaPing(playerIdxForKey);
 				}
 
 				// Check to make sure this address+port are one of the ones we are actually connected to.
@@ -1551,6 +1593,7 @@ void SlippiNetplayClient::ForceDisconnectPlayer(u8 playerIdx)
 	if (playerIdx >= SLIPPI_PLAYER_COUNT_MAX)
 		return;
 	playerActive[playerIdx].store(false, std::memory_order_release);
+	ClearArenaPing(playerIdx);
 
 	// If no remote players are still active, transition the overall status to
 	// DISCONNECTED so the existing disconnect-detection paths fire (game ends in

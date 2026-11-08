@@ -59,4 +59,5 @@ class SlippiUser
 	// A pointer to a "shadow" EXI Device that lives on the Rust side of things.
 	// Do *not* do any cleanup of this! The EXI device will handle it.
 	uintptr_t slprs_exi_device_ptr;
+	UserInfo m_arenaUserInfo{};
 };

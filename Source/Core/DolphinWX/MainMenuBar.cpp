@@ -10,6 +10,9 @@
 #include "Common/CDUtils.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
+#ifdef SATS_ARENA_LOCAL
+#include "Core/Slippi/SatsArenaNetplayRoom.h"
+#endif
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/State.h"
 #include "DiscIO/NANDContentLoader.h"
@@ -290,6 +293,11 @@ wxMenu* MainMenuBar::CreateViewMenu() const
 	columns_menu->Check(IDM_SHOW_STATE, config_instance.m_showStateColumn);
 
 	auto* const view_menu = new wxMenu;
+#ifdef SATS_ARENA_LOCAL
+    view_menu->AppendCheckItem(IDM_ARENA_MULTIPLAYER_PANEL, SatsArenaNetplay::ServerEnabled() ?
+        "Multiplayer panel (Ctrl+Shift+M)" : "Local match panel (Ctrl+Shift+M)");
+    view_menu->Check(IDM_ARENA_MULTIPLAYER_PANEL, true);
+#endif
 	view_menu->AppendCheckItem(IDM_TOGGLE_TOOLBAR, _("Show &Toolbar"));
 	view_menu->Check(IDM_TOGGLE_TOOLBAR, config_instance.m_InterfaceToolbar);
 	view_menu->AppendCheckItem(IDM_TOGGLE_STATUSBAR, _("Show &Status Bar"));

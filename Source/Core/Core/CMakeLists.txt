@@ -192,6 +192,7 @@ set(SRCS	ActionReplay.cpp
 			PowerPC/JitILCommon/JitILBase_Integer.cpp
 			Slippi/SlippiGameFileLoader.cpp
 			Slippi/SlippiMatchmaking.cpp
+			Slippi/SatsArenaRoomClient.cpp
 			Slippi/SlippiNetplay.cpp
 			Slippi/SlippiPad.cpp
 			Slippi/SlippiPlayback.cpp
@@ -313,5 +314,7 @@ endif(UNIX)
 add_dolphin_library(core "${SRCS}" "${LIBS}")
 if(ENABLE_SATS_ARENA)
 	target_sources(core PRIVATE Slippi/SatsArenaTracker.cpp)
-	set_property(SOURCE HW/EXI_DeviceSlippi.cpp APPEND PROPERTY COMPILE_DEFINITIONS SATS_ARENA)
+	set_property(SOURCE HW/EXI_DeviceSlippi.cpp HW/SI_DeviceGCController.cpp
+		Slippi/SlippiUser.cpp Slippi/SlippiMatchmaking.cpp Slippi/SatsArenaRoomClient.cpp
+		APPEND PROPERTY COMPILE_DEFINITIONS SATS_ARENA)
 endif()

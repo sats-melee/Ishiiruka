@@ -14,6 +14,9 @@
 #include "Core/HW/SystemTimers.h"
 #include "Core/Movie.h"
 #include "Core/NetPlayProto.h"
+#ifdef SATS_ARENA
+#include "Core/Slippi/SatsArenaTracker.h"
+#endif
 #include "InputCommon/GCPadStatus.h"
 
 // --- standard GameCube controller ---
@@ -178,6 +181,11 @@ bool CSIDevice_GCController::GetData(u32 &_Hi, u32 &_Low, std::chrono::high_reso
 
 bool CSIDevice_GCController::GetDataFromPadStatus(u32 &_Hi, u32 &_Low, GCPadStatus &PadStatus)
 {
+#ifdef SATS_ARENA
+	// Results screens and CSS input cooldowns do not send gate Start telemetry.
+	if (!NetPlay::IsNetPlayRunning())
+		SatsArena::GetPaymentGate().ObserveStart(m_iDeviceNumber, (PadStatus.button & PAD_BUTTON_START) != 0);
+#endif
 	// bool CSIDevice_GCController::GetData(u32 &_Hi, u32 &_Low) {
 	// GCPadStatus PadStatus = GetPadStatus();
 

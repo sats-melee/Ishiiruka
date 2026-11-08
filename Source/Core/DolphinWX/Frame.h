@@ -29,6 +29,7 @@
 #endif
 
 // Class declarations
+class SatsArenaPanel;
 class CGameListCtrl;
 class CCodeWindow;
 class CConfigMain;
@@ -157,6 +158,12 @@ private:
 	wxPanel* m_Panel = nullptr;
 	// The graphics backend gets only this child, never the sidebar's native surface.
 	wxPanel* m_GamePanel = nullptr;
+#ifdef SATS_ARENA_LOCAL
+	void ToggleArenaPanel();
+	void UpdateArenaPanelControls();
+	SatsArenaPanel* m_arena_panel = nullptr;
+	bool m_room_shortcut_down = false;
+#endif
 	CRenderFrame* m_RenderFrame = nullptr;
 	wxWindow* m_RenderParent = nullptr;
 	CLogWindow* m_LogWindow = nullptr;

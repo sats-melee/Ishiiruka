@@ -21,6 +21,7 @@ class SlippiPremadeText
 		SPT_CHAT_P4 = 0x4,
 		SPT_LOGOUT = 0x5,
 		SPT_CHAT_DISABLED = 0x6,
+		SPT_ROOM_CODE = 0x7,
 
 		CHAT_MSG_U_PAD_LEFT = 0x81,
 		CHAT_MSG_U_PAD_RIGHT = 0x82,
@@ -71,6 +72,7 @@ class SlippiPremadeText
 	};
 
 	unordered_map<u8, string> premadeTexts = {
+	    {SPT_ROOM_CODE, "<LEFT><KERN>Enter<S>room<S>code.<END>"},
 	    {SPT_CHAT_P1, "<LEFT><KERN><COLOR, 229, 76, 76>%s:<S><COLOR, 255, 255, 255>%s<END>"},
 	    {SPT_CHAT_P2, "<LEFT><KERN><COLOR, 59, 189, 255>%s:<S><COLOR, 255, 255, 255>%s<END>"},
 	    {SPT_CHAT_P3, "<LEFT><KERN><COLOR, 255, 203, 4>%s:<S><COLOR, 255, 255, 255>%s<END>"},

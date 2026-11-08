@@ -223,7 +223,10 @@
     <ClCompile Include="HW\SI_DeviceDanceMat.cpp" />
     <ClCompile Include="HW\SI_DeviceGBA.cpp" />
     <ClCompile Include="HW\SI_DeviceGCAdapter.cpp" />
-    <ClCompile Include="HW\SI_DeviceGCController.cpp" />
+    <ClCompile Include="HW\SI_DeviceGCController.cpp">
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|x64'">SATS_ARENA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='ReleasePlayback|x64'">SATS_ARENA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
     <ClCompile Include="HW\SI_DeviceGCSteeringWheel.cpp" />
     <ClCompile Include="HW\SI_DeviceKeyboard.cpp" />
     <ClCompile Include="HW\Sram.cpp" />
@@ -333,17 +336,27 @@
     <ClCompile Include="PowerPC\Profiler.cpp" />
     <ClCompile Include="PowerPC\SignatureDB.cpp" />
     <ClCompile Include="Slippi\SatsArenaTracker.cpp" />
+    <ClCompile Include="Slippi\SatsArenaRoomClient.cpp">
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|x64'">SATS_ARENA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='ReleasePlayback|x64'">SATS_ARENA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
     <ClCompile Include="Slippi\SlippiDirectCodes.cpp" />
     <ClCompile Include="Slippi\SlippiPlayback.cpp" />
     <ClCompile Include="Slippi\SlippiTimer.cpp" />
     <ClCompile Include="Slippi\SlippiGameFileLoader.cpp" />
-    <ClCompile Include="Slippi\SlippiMatchmaking.cpp" />
+    <ClCompile Include="Slippi\SlippiMatchmaking.cpp">
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|x64'">SATS_ARENA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='ReleasePlayback|x64'">SATS_ARENA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
     <ClCompile Include="Slippi\SlippiNetplay.cpp" />
     <ClCompile Include="Slippi\SlippiPad.cpp" />
     <ClCompile Include="Slippi\SlippiReplayComm.cpp" />
     <ClCompile Include="Slippi\SlippiSavestate.cpp" />
     <ClCompile Include="Slippi\SlippiSpectate.cpp" />
-    <ClCompile Include="Slippi\SlippiUser.cpp" />
+    <ClCompile Include="Slippi\SlippiUser.cpp">
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|x64'">SATS_ARENA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='ReleasePlayback|x64'">SATS_ARENA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
     <ClCompile Include="State.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -542,6 +555,11 @@
     <ClInclude Include="Slippi\SlippiPremadeText.h" />
     <ClInclude Include="Slippi\SlippiTimer.h" />
     <ClInclude Include="Slippi\SlippiGameFileLoader.h" />
+    <ClInclude Include="Slippi\SatsArenaTracker.h" />
+    <ClInclude Include="Slippi\SatsArenaGameplay.h" />
+    <ClInclude Include="Slippi\SatsArenaNetplayRoom.h" />
+    <ClInclude Include="Slippi\SatsArenaRoomClient.h" />
+    <ClInclude Include="Slippi\SatsArenaRoomPayments.h" />
     <ClInclude Include="Slippi\SlippiMatchmaking.h" />
     <ClInclude Include="Slippi\SlippiNetplay.h" />
     <ClInclude Include="Slippi\SlippiPad.h" />

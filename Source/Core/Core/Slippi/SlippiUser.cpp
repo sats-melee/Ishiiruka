@@ -2,6 +2,7 @@
 #include "Common/Logging/Log.h"
 
 #include "SlippiUser.h"
+#include "SatsArenaNetplayRoom.h"
 
 #include "SlippiRustExtensions.h"
 
@@ -25,33 +26,55 @@ std::vector<std::string> ConvertChatMessagesFromRust(RustChatMessages *rsMessage
 SlippiUser::SlippiUser(uintptr_t rs_exi_device_ptr)
 {
 	slprs_exi_device_ptr = rs_exi_device_ptr;
+	if (SatsArenaNetplay::Enabled())
+	{
+		m_arenaUserInfo.uid = "arena-room-local";
+		m_arenaUserInfo.displayName = "Arena Player";
+		const char* roomName = std::getenv("SATS_ARENA_ROOM_NAME");
+		if (roomName && *roomName && std::string(roomName).size() <= 31)
+			m_arenaUserInfo.displayName = roomName;
+		m_arenaUserInfo.connectCode = "ARENA#0";
+		m_arenaUserInfo.latestVersion = "0.0.0";
+		SatsArenaNetplay::Room room;
+		std::string error;
+		if (SatsArenaNetplay::Load(room, error))
+		{
+			m_arenaUserInfo.uid = "arena-lan-" + std::to_string(room.slot);
+			m_arenaUserInfo.displayName = room.players[room.slot].name;
+			m_arenaUserInfo.connectCode = "ARENA#" + std::to_string(room.slot);
+			m_arenaUserInfo.port = room.slot + 1;
+		}
+	}
 }
 
 SlippiUser::~SlippiUser() {}
 
 bool SlippiUser::AttemptLogin()
 {
-	return slprs_user_attempt_login(slprs_exi_device_ptr);
+	return SatsArenaNetplay::Enabled() || slprs_user_attempt_login(slprs_exi_device_ptr);
 }
 
 void SlippiUser::OpenLogInPage()
 {
-	slprs_user_open_login_page(slprs_exi_device_ptr);
+	if (!SatsArenaNetplay::Enabled())
+		slprs_user_open_login_page(slprs_exi_device_ptr);
 }
 
 void SlippiUser::ListenForLogIn()
 {
-	slprs_user_listen_for_login(slprs_exi_device_ptr);
+	if (!SatsArenaNetplay::Enabled())
+		slprs_user_listen_for_login(slprs_exi_device_ptr);
 }
 
 bool SlippiUser::UpdateApp()
 {
-	return slprs_user_update_app(slprs_exi_device_ptr);
+	return !SatsArenaNetplay::Enabled() && slprs_user_update_app(slprs_exi_device_ptr);
 }
 
 void SlippiUser::LogOut()
 {
-	slprs_user_logout(slprs_exi_device_ptr);
+	if (!SatsArenaNetplay::Enabled())
+		slprs_user_logout(slprs_exi_device_ptr);
 }
 
 void SlippiUser::OverwriteLatestVersion(std::string version)
@@ -61,6 +84,8 @@ void SlippiUser::OverwriteLatestVersion(std::string version)
 
 SlippiUser::UserInfo SlippiUser::GetUserInfo()
 {
+	if (SatsArenaNetplay::Enabled())
+		return m_arenaUserInfo;
 	SlippiUser::UserInfo userInfo;
 
 	RustUserInfo *info = slprs_user_get_info(slprs_exi_device_ptr);
@@ -88,5 +113,5 @@ std::vector<std::string> SlippiUser::GetUserChatMessages()
 
 bool SlippiUser::IsLoggedIn()
 {
-	return slprs_user_get_is_logged_in(slprs_exi_device_ptr);
+	return SatsArenaNetplay::Enabled() || slprs_user_get_is_logged_in(slprs_exi_device_ptr);
 }
