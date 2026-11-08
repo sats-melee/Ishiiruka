@@ -2262,7 +2262,7 @@ void CEXISlippi::prepareOnlineMatchState()
 			// a match. So let's copy the results.
 			recentMmResult = matchmaking->GetMatchmakeResult();
 			if (recentMmResult.arenaRoom)
-				localSelections.teamId = recentMmResult.arenaConfig.team_ids[localPlayerIndex];
+				localSelections.teamId = static_cast<u8>(recentMmResult.arenaConfig.team_ids[localPlayerIndex]);
 
 			// Use allowed stages from the matchmaking service and pick a new random stage before sending
 			// the selections to the opponent
@@ -2641,7 +2641,7 @@ void CEXISlippi::prepareOnlineMatchState()
 			onlineMatchBlock[0x60 + (s->playerIdx) * 0x24] = s->characterId;
 			onlineMatchBlock[0x63 + (s->playerIdx) * 0x24] = s->characterColor;
 			onlineMatchBlock[0x67 + (s->playerIdx) * 0x24] = 0;
-			onlineMatchBlock[0x69 + (s->playerIdx) * 0x24] = teamId;
+			onlineMatchBlock[0x69 + (s->playerIdx) * 0x24] = static_cast<u8>(teamId);
 		}
 
 		// Handle character coloring. This normally wouldn't be necessary but in the case where one person selects Zelda
@@ -2921,7 +2921,7 @@ void CEXISlippi::setMatchSelections(u8 *payload)
 
 	s.teamId = payload[0];
 	if (slippi_netplay && recentMmResult.arenaRoom)
-		s.teamId = recentMmResult.arenaConfig.team_ids[localPlayerIndex];
+		s.teamId = static_cast<u8>(recentMmResult.arenaConfig.team_ids[localPlayerIndex]);
 	s.characterId = payload[1];
 	s.characterColor = payload[2];
 	s.isCharacterSelected = payload[3];

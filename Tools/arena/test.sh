@@ -12,18 +12,18 @@ mkdir -p "$ROOT/build-arena/tests"
   -I "$ROOT/Source/Core" "$ROOT/Tools/arena/TrackerTest.cpp" \
   "$ROOT/Source/Core/Core/Slippi/SatsArenaTracker.cpp" \
   -o "$ROOT/build-arena/tests/arena-tracker-test"
-distrobox enter --name slippi-arena-build --no-tty -- "$ROOT/build-arena/tests/arena-tracker-test" "$@"
+"${RUNNER[@]}" "$ROOT/build-arena/tests/arena-tracker-test" "$@"
 "${RUNNER[@]}" \
   g++ -std=c++14 -Wall -Wextra -Werror -pedantic -pthread \
   -I "$ROOT/Source/Core" "$ROOT/Tools/arena/PaymentGateTest.cpp" \
   "$ROOT/Source/Core/Core/Slippi/SatsArenaTracker.cpp" \
   -o "$ROOT/build-arena/tests/arena-payment-gate-test"
-distrobox enter --name slippi-arena-build --no-tty -- "$ROOT/build-arena/tests/arena-payment-gate-test"
+"${RUNNER[@]}" "$ROOT/build-arena/tests/arena-payment-gate-test"
 "${RUNNER[@]}" \
   g++ -std=c++14 -Wall -Wextra -Werror -pedantic \
   -I "$ROOT/Source/Core" "$ROOT/Tools/arena/LocalLayoutTest.cpp" \
   -o "$ROOT/build-arena/tests/local-layout-test"
-distrobox enter --name slippi-arena-build --no-tty -- "$ROOT/build-arena/tests/local-layout-test"
+"${RUNNER[@]}" "$ROOT/build-arena/tests/local-layout-test"
 "${RUNNER[@]}" \
   g++ -std=c++14 -pthread -ffunction-sections -fdata-sections \
   -I "$ROOT/Source/Core" "$ROOT/Tools/arena/VertexLoaderCacheTest.cpp" \
@@ -32,22 +32,22 @@ distrobox enter --name slippi-arena-build --no-tty -- "$ROOT/build-arena/tests/l
   g++ -std=c++14 -fno-exceptions -DSATS_ARENA -Wall -Wextra -Werror -pedantic \
   -I "$ROOT/Source/Core" -I "$ROOT/Externals/nlohmann" \
   "$ROOT/Tools/arena/NetplayRoomTest.cpp" -o "$ROOT/build-arena/tests/netplay-room-test"
-distrobox enter --name slippi-arena-build --no-tty -- "$ROOT/build-arena/tests/netplay-room-test"
+"${RUNNER[@]}" "$ROOT/build-arena/tests/netplay-room-test"
 "${RUNNER[@]}" \
   g++ -std=c++14 -fno-exceptions -DSATS_ARENA -Wall -Wextra -Werror -pedantic \
   -I "$ROOT/Source/Core" -I "$ROOT/Externals/nlohmann" \
   "$ROOT/Tools/arena/RoomObservationTest.cpp" -o "$ROOT/build-arena/tests/room-observation-test"
-distrobox enter --name slippi-arena-build --no-tty -- "$ROOT/build-arena/tests/room-observation-test"
+"${RUNNER[@]}" "$ROOT/build-arena/tests/room-observation-test"
 "${RUNNER[@]}" \
   g++ -std=c++14 -fno-exceptions -DSATS_ARENA -Wall -Wextra -Werror -pedantic \
   -I "$ROOT/Source/Core" -I "$ROOT/Externals/nlohmann" -I "$ENGINE/local/include" \
   "$ROOT/Tools/arena/RoomViewTest.cpp" -o "$ROOT/build-arena/tests/room-view-test"
-distrobox enter --name slippi-arena-build --no-tty -- "$ROOT/build-arena/tests/room-view-test"
+"${RUNNER[@]}" "$ROOT/build-arena/tests/room-view-test"
 "${RUNNER[@]}" \
   g++ -std=c++14 -fno-exceptions -DSATS_ARENA -Wall -Wextra -Werror -pedantic \
   -I "$ROOT/Source/Core" -I "$ROOT/Externals/nlohmann" \
   "$ROOT/Tools/arena/RoomGameplayTest.cpp" -o "$ROOT/build-arena/tests/room-gameplay-test"
-distrobox enter --name slippi-arena-build --no-tty -- "$ROOT/build-arena/tests/room-gameplay-test"
+"${RUNNER[@]}" "$ROOT/build-arena/tests/room-gameplay-test"
 "${RUNNER[@]}" \
   g++ -std=c++14 -fno-exceptions -DSATS_ARENA -Wall -Wextra -Werror -pedantic -pthread \
   -I "$ROOT/Source/Core" -I "$ROOT/Externals/nlohmann" \
@@ -66,4 +66,4 @@ distrobox enter --name slippi-arena-build --no-tty -- "$ROOT/build-arena/tests/r
   -o "$ROOT/build-arena/tests/room-client-recovery-test"
 "${RUNNER[@]}" \
   python3 "$ROOT/Tools/arena/test-room-client-recovery.py"
-exec distrobox enter --name slippi-arena-build --no-tty -- "$ROOT/build-arena/tests/vertex-loader-cache-test"
+exec "${RUNNER[@]}" "$ROOT/build-arena/tests/vertex-loader-cache-test"

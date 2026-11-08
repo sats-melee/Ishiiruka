@@ -79,7 +79,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: sats-melee/sats-arena
-          ref: ece969c8b1235b63a6f52342c7e1d6787ec92409
+          ref: 5afa6376231ae7d81622f59a61a92ad5c12bbb6d
           path: sats-arena
       - id: rust_ver
         name: Grab Rust Version
@@ -224,7 +224,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: sats-melee/sats-arena
-          ref: ece969c8b1235b63a6f52342c7e1d6787ec92409
+          ref: 5afa6376231ae7d81622f59a61a92ad5c12bbb6d
           path: sats-arena
       - name: Check native release selection
         if: matrix.build_type == 'Netplay'
@@ -366,7 +366,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: sats-melee/sats-arena
-          ref: ece969c8b1235b63a6f52342c7e1d6787ec92409
+          ref: 5afa6376231ae7d81622f59a61a92ad5c12bbb6d
           path: sats-arena
       - name: 'Fetch Git Tags'
         if: success()

@@ -388,7 +388,7 @@ void SlippiMatchmaking::applyArenaRoom(const SatsArenaNetplay::Room& room)
 		player.uid = "arena-lan-" + std::to_string(slot);
 		player.displayName = room.players[slot].name;
 		player.connectCode = "ARENA#" + std::to_string(slot);
-		player.port = slot + 1;
+		player.port = static_cast<int>(slot) + 1;
 		player.chatMessages = m_user->GetDefaultChatMessages();
 		m_playerInfo.push_back(player);
 	}
