@@ -1,36 +1,84 @@
-name: Upload Latest Artifacts to Release
+name: Release Native Dolphin
 
 on:
   release:
-    types: [released]
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing native release tag to validate
+        required: true
+        type: string
+      build_run_id:
+        description: Optional successful native build for the same tag commit
+        required: false
+        type: string
+      upload:
+        description: Upload to the existing draft release (false only validates)
+        default: false
+        type: boolean
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: native-release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
 
 jobs:
   package:
-    name: Release New Slippi Dolphin
+    name: Release Native Archives
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      BUILD_RUN_ID: ${{ inputs.build_run_id }}
     steps:
-      - name: 'Get version'
-        run: |
-          echo "VERSION=$(echo ${{ github.ref }} | cut -d "v" -f 2)" >> $GITHUB_ENV
-      - name: Download latest artifacts
-        uses: dawidd6/action-download-artifact@v6
+      - uses: actions/checkout@v6
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          workflow: pr-build.yml
-          branch: slippi
-      - name: Organize release files"
+          fetch-depth: 0
+      - name: Check native release selection
+        run: python3 Tools/ci/test_release_artifacts.py
+      - name: Select successful native build of the exact tag commit
+        id: source
+        shell: bash
         run: |
-          rm -rf *playback*
-          find ./ -mindepth 2 -type f -exec mv -t ./ -i '{}' +
-          find . -type d -empty -delete
-          unzip *linux* && rm -rf Sys && mv *linux* "FM-Slippi-${{ env.VERSION }}-Linux.zip"
-          mv *.dmg "FM-Slippi-${{ env.VERSION }}-Mac.dmg"
-          mv *windows* "FM-Slippi-${{ env.VERSION }}-Win.zip"
-      - name: Upload binaries to release
-        uses: svenstaro/upload-release-action@v2
+          args=(--tag "$RELEASE_TAG")
+          if [[ -n "$BUILD_RUN_ID" ]]; then args+=(--run-id "$BUILD_RUN_ID"); fi
+          python3 Tools/ci/release-artifacts.py resolve "${args[@]}"
+      - name: Download selected native archives
+        uses: actions/download-artifact@v8
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./*
-          tag: ${{ github.ref }}
-          overwrite: true
-          file_glob: true
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.source.outputs.run_id }}
+          artifact-ids: ${{ steps.source.outputs.artifact_ids }}
+          path: native-release-artifacts
+      - name: Stage only native release archives
+        env:
+          NATIVE_VERSION: ${{ steps.source.outputs.version }}
+        run: |
+          python3 Tools/ci/release-artifacts.py stage --downloads native-release-artifacts --output native-release-assets --version "$NATIVE_VERSION"
+      - name: Upload to the existing release
+        if: github.event_name == 'release' || inputs.upload
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+          if [[ "$EVENT_NAME" == workflow_dispatch && "$draft" != true ]]; then
+            echo 'Manual uploads require an existing draft release.' >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" native-release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Record native release source
+        env:
+          BUILD_SHA: ${{ steps.source.outputs.sha }}
+          BUILD_ID: ${{ steps.source.outputs.run_id }}
+        run: |
+          {
+            printf 'Tag: `%s`\n\nCommit: `%s`\n\n' "$RELEASE_TAG" "$BUILD_SHA"
+            printf 'Build: https://github.com/%s/actions/runs/%s\n\n' "$GITHUB_REPOSITORY" "$BUILD_ID"
+            printf 'Assets:\n'
+            find native-release-assets -maxdepth 1 -type f -printf '\n- %f\n' | sort
+          } >> "$GITHUB_STEP_SUMMARY"

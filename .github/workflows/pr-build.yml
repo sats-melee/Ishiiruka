@@ -1,9 +1,12 @@
 name: Builds
 
 on:
+  workflow_dispatch:
   push:
     branches:
         - "**"
+    tags:
+      - "v*"
   pull_request:
     branches:
       - slippi
@@ -29,7 +32,7 @@ jobs:
     name: Verify SlippiRustExtensions Commit is in Main
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - name: Main Branch Check
         shell: bash
         run: |
@@ -58,7 +61,7 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: "Checkout"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - id: rust_ver
@@ -175,9 +178,12 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: "Checkout"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
         with:
           submodules: recursive
+      - name: Check native release selection
+        if: matrix.build_type == 'Netplay'
+        run: python3 Tools/ci/test_release_artifacts.py
       - name: 'Fetch Git Tags'
         if: success()
         run: |
@@ -288,7 +294,7 @@ jobs:
     runs-on: macos-15-intel
     steps:
       - name: "Checkout"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: 'Fetch Git Tags'
