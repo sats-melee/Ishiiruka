@@ -418,7 +418,7 @@ jobs:
             install_name_tool -id "@rpath/$name.dylib" "$app/Contents/Frameworks/$name.dylib"
           done
           for executable in "$app/Contents/MacOS/Slippi Dolphin" "$app/Contents/MacOS/sats-arena-wallet-check"; do
-            if ! otool -l "$executable" | grep -q 'path @executable_path/../Frameworks'; then
+            if ! otool -l "$executable" | grep 'path @executable_path/../Frameworks' >/dev/null; then
               install_name_tool -add_rpath @executable_path/../Frameworks "$executable"
             fi
             for name in libsats_arena_local libslippi_rust_extensions; do

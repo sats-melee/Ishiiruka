@@ -2,6 +2,7 @@
 #include "DolphinWX/SatsArenaLocal.h"
 
 #include <algorithm>
+#include <functional>
 #include <array>
 #include <cstdlib>
 #include <chrono>
@@ -35,6 +36,8 @@ namespace SatsArenaLocal
 {
 namespace
 {
+// Bundled wxWidgets needs default-constructible event functors on MSVC.
+
 struct Host
 {
 	ArenaLocalHandle* handle = nullptr;
@@ -149,7 +152,7 @@ public:
         m_phone_join = new wxPanel(this);
         m_phone_join->SetBackgroundColour(SURFACE);
         m_phone_join->SetBackgroundStyle(wxBG_STYLE_PAINT);
-        m_phone_join->Bind(wxEVT_PAINT, [this](wxPaintEvent&) {
+        m_phone_join->Bind(wxEVT_PAINT, std::function<void(wxPaintEvent&)>([this](wxPaintEvent&) {
             wxAutoBufferedPaintDC dc(m_phone_join);
             dc.SetBackground(wxBrush(SURFACE));
             dc.Clear();
@@ -162,7 +165,7 @@ public:
             dc.DrawLine(size.x - 14, 0, size.x - 1, 13);
             dc.SetPen(wxPen(ACCENT, 2));
             dc.DrawLine(0, size.y - 1, size.x / 3, size.y - 1);
-        });
+        }));
         auto* phone_layout = new wxBoxSizer(wxHORIZONTAL);
         auto* website = new wxBoxSizer(wxVERTICAL);
         website->Add(Heading(m_phone_join, "JOIN ON YOUR PHONE", 9, MUTED), 0, wxBOTTOM, 3);
@@ -250,21 +253,21 @@ public:
             m_address[i]->SetBackgroundColour(wxColour(36, 38, 46));
             m_address[i]->SetForegroundColour(TEXT);
             m_address[i]->SetName(wxString::Format("Player %d Lightning Address", i + 1));
-            m_address[i]->Bind(wxEVT_TEXT, [this, i](wxCommandEvent&) {
+            m_address[i]->Bind(wxEVT_TEXT, std::function<void(wxCommandEvent&)>([this, i](wxCommandEvent&) {
                 m_addresses_dirty[i] = true;
                 m_edited_at[i] = std::chrono::steady_clock::now();
                 m_auto_failure[i].clear();
                 m_auto_attempted[i].clear();
-            });
-            m_address[i]->Bind(wxEVT_KILL_FOCUS, [this, i](wxFocusEvent& event) {
+            }));
+            m_address[i]->Bind(wxEVT_KILL_FOCUS, std::function<void(wxFocusEvent&)>([this, i](wxFocusEvent& event) {
                 m_editing_address[i] = false;
                 event.Skip();
-            });
-            m_address[i]->Bind(wxEVT_SET_FOCUS, [this, i](wxFocusEvent& event) {
+            }));
+            m_address[i]->Bind(wxEVT_SET_FOCUS, std::function<void(wxFocusEvent&)>([this, i](wxFocusEvent& event) {
                 m_editing_address[i] = true;
                 event.Skip();
-            });
-            m_address[i]->Bind(wxEVT_CHAR_HOOK, [this, i](wxKeyEvent& event) {
+            }));
+            m_address[i]->Bind(wxEVT_CHAR_HOOK, std::function<void(wxKeyEvent&)>([this, i](wxKeyEvent& event) {
                 if (event.GetKeyCode() != WXK_TAB || event.ControlDown() || event.AltDown()) {
                     event.Skip();
                     return;
@@ -278,7 +281,7 @@ public:
                 }
                 if (!event.ShiftDown()) m_show_activity->SetFocus();
                 else event.Skip();
-            });
+            }));
             auto* address_row = new wxBoxSizer(wxHORIZONTAL);
             address_row->Add(m_address[i], 1, wxRIGHT | wxALIGN_CENTER_VERTICAL, 6);
             m_address_display[i] = Label(row, "", 8, MUTED, false, wxST_ELLIPSIZE_END);
@@ -289,16 +292,16 @@ public:
             m_edit_address[i]->SetNormalColour(MUTED);
             m_edit_address[i]->SetVisitedColour(MUTED);
             m_edit_address[i]->SetHoverColour(TEXT);
-            m_edit_address[i]->Bind(wxEVT_HYPERLINK, [this, i](wxHyperlinkEvent&) {
+            m_edit_address[i]->Bind(wxEVT_HYPERLINK, std::function<void(wxHyperlinkEvent&)>([this, i](wxHyperlinkEvent&) {
                 EditAddress(i);
-            });
+            }));
             address_row->Add(m_edit_address[i], 0, wxALIGN_CENTER_VERTICAL);
             m_verify[i] = new wxButton(row, wxID_ANY, "Retry", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
             m_verify[i]->SetName(wxString::Format("Retry Player %d receiving address", i + 1));
-            m_verify[i]->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent&) {
+            m_verify[i]->Bind(wxEVT_BUTTON, std::function<void(wxCommandEvent&)>([this, i](wxCommandEvent&) {
                 m_auto_attempted[i].clear();
                 m_auto_failure[i].clear();
-            });
+            }));
             address_row->Add(m_verify[i], 0);
             info->Add(address_row, 0, wxBOTTOM | wxEXPAND, 2);
             m_verification[i] = Label(row, "Not verified", 8, MUTED);
@@ -332,7 +335,7 @@ public:
             m_pay[i] = new wxButton(row, wxID_ANY, "Test pay", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
             m_pay[i]->SetFont(wxFont(8, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
             m_pay[i]->SetName(wxString::Format("Pay Player %d test entry", i + 1));
-            m_pay[i]->Bind(wxEVT_BUTTON, [this, i](wxCommandEvent&) { Send(i < 2 ? 2 + i : 7 + i); });
+            m_pay[i]->Bind(wxEVT_BUTTON, std::function<void(wxCommandEvent&)>([this, i](wxCommandEvent&) { Send(i < 2 ? 2 + i : 7 + i); }));
             m_pay[i]->Hide();
             figures->Add(m_pay[i], 0, wxTOP, 4);
             info->Add(m_verification[i], 0, wxTOP | wxEXPAND, 4);
@@ -361,35 +364,35 @@ public:
         m_last_match->Enable(false);
         log_toggles->AddStretchSpacer();
         log_toggles->Add(m_last_match, 0, wxLEFT | wxALIGN_CENTER_VERTICAL, 6);
-        m_last_match->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent&) {
+        m_last_match->Bind(wxEVT_TOGGLEBUTTON, std::function<void(wxCommandEvent&)>([this](wxCommandEvent&) {
             m_summary_manual = m_last_match->GetValue();
             m_summary_auto = false;
             m_summary_start_request = SatsArena::GetPaymentGate().Read().start_requests;
             LayoutSummary();
-        });
+        }));
         root->Add(log_toggles, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
         m_discard = new wxButton(this, wxID_ANY, "Discard unsent payments");
         m_discard->Enable(false);
         m_discard->SetToolTip("Discard queued payouts and open damage batches from this and earlier matches. Funds stay in the host wallet. Submitted Lightning payments cannot be cancelled.");
-        m_discard->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        m_discard->Bind(wxEVT_BUTTON, std::function<void(wxCommandEvent&)>([this](wxCommandEvent&) {
             wxMessageDialog confirm(this,
                 wxString::Format("Discard up to %llu sats in unsent payments?\n\nThese funds will stay in the host wallet and will not be paid to players. Already-submitted payments may still complete. Payment history is kept.",
                     static_cast<unsigned long long>(m_unsent_sats)),
                 "Discard unsent payments", wxYES_NO | wxNO_DEFAULT | wxICON_WARNING);
             confirm.SetYesNoLabels("Discard unsent", "Keep payments");
             if (confirm.ShowModal() == wxID_YES) Send(14);
-        });
+        }));
         m_pay_missed = new wxButton(this, wxID_ANY, "Pay missed payments");
         m_pay_missed->Enable(false);
         m_pay_missed->SetToolTip("After match end, combine safe missed amounts by address. Unknown original sends are checked separately and never paid twice.");
-        m_pay_missed->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        m_pay_missed->Bind(wxEVT_BUTTON, std::function<void(wxCommandEvent&)>([this](wxCommandEvent&) {
             wxMessageDialog confirm(this,
                 wxString::Format("Pay %llu sats in missed payments?\n\nSafe amounts from finished matches are combined by receiving address. Unconfirmed original sends are excluded. Routing fees follow your wallet policy.",
                     static_cast<unsigned long long>(m_payable_missed_sats)),
                 "Pay missed payments", wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION);
             confirm.SetYesNoLabels("Pay missed", "Cancel");
             if (confirm.ShowModal() == wxID_YES) Send(16);
-        });
+        }));
         auto* payment_actions = new wxBoxSizer(wxHORIZONTAL);
         payment_actions->Add(m_discard, 0, wxRIGHT, MARGIN);
         payment_actions->Add(m_pay_missed, 0);
@@ -445,7 +448,7 @@ public:
         auto* log_window_layout = new wxBoxSizer(wxVERTICAL);
         log_window_layout->Add(m_logs, 1, wxALL | wxEXPAND, MARGIN);
         m_log_window->SetSizer(log_window_layout);
-        m_log_window->Bind(wxEVT_CLOSE_WINDOW, [this](wxCloseEvent& event) {
+        m_log_window->Bind(wxEVT_CLOSE_WINDOW, std::function<void(wxCloseEvent&)>([this](wxCloseEvent& event) {
             if (!event.CanVeto()) { event.Skip(); return; }
             m_show_activity->SetValue(false);
             m_show_outbound->SetValue(false);
@@ -456,31 +459,31 @@ public:
             m_outbound_area->Hide();
             LayoutContents();
             event.Veto();
-        });
-        m_show_activity->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
+        }));
+        m_show_activity->Bind(wxEVT_CHECKBOX, std::function<void(wxCommandEvent&)>([this](wxCommandEvent&) {
             m_log_area->Show(m_show_activity->GetValue());
             LayoutContents();
-        });
-        m_show_outbound->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
+        }));
+        m_show_outbound->Bind(wxEVT_CHECKBOX, std::function<void(wxCommandEvent&)>([this](wxCommandEvent&) {
             const bool show = m_show_outbound->GetValue();
             arena_local_outbound_debug(m_handle, show);
             m_outbound_area->Show(show);
             m_outbound_refreshed = {};
             if (show) UpdateOutbound();
             LayoutContents();
-        });
-        m_show_missed->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
+        }));
+        m_show_missed->Bind(wxEVT_CHECKBOX, std::function<void(wxCommandEvent&)>([this](wxCommandEvent&) {
             m_missed_area->Show(m_show_missed->GetValue());
             LayoutContents();
-        });
+        }));
         SetSizer(root);
-        Bind(wxEVT_CHAR_HOOK, [this](wxKeyEvent& event) {
+        Bind(wxEVT_CHAR_HOOK, std::function<void(wxKeyEvent&)>([this](wxKeyEvent& event) {
             if (event.GetKeyCode() == WXK_ESCAPE && m_summary->IsShown()) {
                 m_summary_manual = m_summary_auto = false;
                 LayoutSummary();
             } else event.Skip();
-        });
-        Bind(wxEVT_TIMER, [this](wxTimerEvent&) { Poll(); });
+        }));
+        Bind(wxEVT_TIMER, std::function<void(wxTimerEvent&)>([this](wxTimerEvent&) { Poll(); }));
         m_timer.Start(100);
         Poll();
         m_refresh_header = true;

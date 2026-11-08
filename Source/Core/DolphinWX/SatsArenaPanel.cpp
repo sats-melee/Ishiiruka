@@ -20,6 +20,7 @@ SatsArenaPanel::~SatsArenaPanel() = default;
 #include "DolphinWX/SatsArenaPanel.h"
 
 #include <algorithm>
+#include <functional>
 #include <utility>
 #include <wx/dcbuffer.h>
 #include <wx/settings.h>
@@ -27,6 +28,8 @@ SatsArenaPanel::~SatsArenaPanel() = default;
 
 namespace
 {
+// Bundled wxWidgets needs default-constructible event functors on MSVC.
+
 const wxColour BACKGROUND(16, 20, 25);
 const wxColour TEXT(244, 246, 248);
 const wxColour MUTED(142, 152, 165);
@@ -129,12 +132,12 @@ SatsArenaPanel::SatsArenaPanel(wxWindow* parent)
 	m_log->SetFont(wxFont(9, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 	m_log->SetName("Finalized player damage log");
 	Bind(wxEVT_PAINT, &SatsArenaPanel::OnPaint, this);
-	Bind(wxEVT_SIZE, [this](wxSizeEvent& event) {
+	Bind(wxEVT_SIZE, std::function<void(wxSizeEvent&)>([this](wxSizeEvent& event) {
 		LayoutActivity();
 		Refresh(false);
 		event.Skip();
-	});
-	Bind(wxEVT_TIMER, [this](wxTimerEvent&) { UpdateLog(); });
+	}));
+	Bind(wxEVT_TIMER, std::function<void(wxTimerEvent&)>([this](wxTimerEvent&) { UpdateLog(); }));
 	LayoutActivity();
 	UpdateLog(true);
 	m_timer.Start(100);
