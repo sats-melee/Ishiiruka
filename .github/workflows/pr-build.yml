@@ -177,6 +177,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/arena-windows-relocated"
           7z x -y artifact/*-windows-*.zip -o"$RUNNER_TEMP/arena-windows-relocated" >/dev/null
           app="$RUNNER_TEMP/arena-windows-relocated"
+          for directory in Binary ../sats-arena/target Externals/SlippiRustExtensions/target; do
+            if [[ -d "$directory" ]]; then mv "$directory" "$directory-before-package-check"; fi
+          done
           python Tools/ci/smoke-native-runtime.py \
             --binary "$app/Slippi Dolphin.exe" --checker "$app/sats-arena-wallet-check.exe" \
             --library "$app/sats_arena_local.dll" --slippi-library "$app/slippi_rust_extensions.dll" \
@@ -313,6 +316,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/arena-linux-relocated"
           (cd "$RUNNER_TEMP/arena-linux-relocated" && "$GITHUB_WORKSPACE/Ishiiruka/$image" --appimage-extract >/dev/null)
           app="$RUNNER_TEMP/arena-linux-relocated/squashfs-root"
+          for directory in build AppDir ../sats-arena/target Externals/SlippiRustExtensions/target; do
+            if [[ -d "$directory" ]]; then mv "$directory" "$directory-before-package-check"; fi
+          done
           xvfb-run -a python3 Tools/ci/smoke-native-runtime.py \
             --binary "$app/usr/bin/dolphin-emu" --checker "$app/usr/bin/sats-arena-wallet-check" \
             --library "$app/usr/lib/libsats_arena_local.so" --slippi-library "$app/usr/lib/libslippi_rust_extensions.so" \
@@ -418,6 +424,9 @@ jobs:
             install_name_tool -id "@rpath/$name.dylib" "$app/Contents/Frameworks/$name.dylib"
           done
           for executable in "$app/Contents/MacOS/Slippi Dolphin" "$app/Contents/MacOS/sats-arena-wallet-check"; do
+            while IFS= read -r rpath; do
+              if [[ "$rpath" == /* ]]; then install_name_tool -delete_rpath "$rpath" "$executable"; fi
+            done < <(otool -l "$executable" | awk '/cmd LC_RPATH/ { getline; getline; sub(/^[ \t]*path /, ""); sub(/ \(offset [0-9]+\)$/, ""); print }')
             if ! otool -l "$executable" | grep 'path @executable_path/../Frameworks' >/dev/null; then
               install_name_tool -add_rpath @executable_path/../Frameworks "$executable"
             fi
@@ -485,6 +494,9 @@ jobs:
           hdiutil attach -readonly -nobrowse -mountpoint "$mount" "artifact/$FILE_NAME.dmg"
           ditto "$mount/Slippi Dolphin.app" "$app"
           hdiutil detach "$mount"
+          for directory in build ../sats-arena/target Externals/SlippiRustExtensions/target; do
+            if [[ -d "$directory" ]]; then mv "$directory" "$directory-before-package-check"; fi
+          done
           python3 Tools/ci/smoke-native-runtime.py \
             --binary "$app/Contents/MacOS/Slippi Dolphin" --checker "$app/Contents/MacOS/sats-arena-wallet-check" \
             --library "$app/Contents/Frameworks/libsats_arena_local.dylib" --slippi-library "$app/Contents/Frameworks/libslippi_rust_extensions.dylib" \
