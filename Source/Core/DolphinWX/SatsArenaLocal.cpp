@@ -61,7 +61,7 @@ Host& GetHost() { static Host host; return host; }
 
 const wxColour BACKGROUND(14, 20, 30);
 const wxColour SURFACE(27, 36, 51);
-const wxColour TEXT(241, 243, 247);
+const wxColour TEXT_COLOUR(241, 243, 247);
 const wxColour MUTED(161, 173, 191);
 const wxColour BORDER(77, 91, 113);
 const wxColour ACCENT(248, 115, 102);
@@ -74,7 +74,7 @@ const int PLAYER_WIDTH = 224;
 const int MARGIN = 6;
 
 wxStaticText* Label(wxWindow* parent, const wxString& text, int points,
-                    const wxColour& colour = TEXT, bool bold = false, long style = 0)
+                    const wxColour& colour = TEXT_COLOUR, bool bold = false, long style = 0)
 {
     auto* label = new wxStaticText(parent, wxID_ANY, text, wxDefaultPosition, wxDefaultSize, style);
     label->SetForegroundColour(colour);
@@ -83,7 +83,7 @@ wxStaticText* Label(wxWindow* parent, const wxString& text, int points,
     return label;
 }
 wxStaticText* Heading(wxWindow* parent, const wxString& text, int points,
-                      const wxColour& colour = TEXT, long style = 0)
+                      const wxColour& colour = TEXT_COLOUR, long style = 0)
 {
     auto* label = Label(parent, text, points, colour, true, style);
     label->SetFont(wxFont(points, wxFONTFAMILY_SWISS, wxFONTSTYLE_SLANT,
@@ -131,7 +131,7 @@ public:
     {
         SetScrollRate(0, 12);
         SetBackgroundColour(BACKGROUND);
-        SetForegroundColour(TEXT);
+        SetForegroundColour(TEXT_COLOUR);
         SetName("Super Sats Bro Melee match funding");
 #if wxUSE_PRIVATE_FONTS
         wxFont::AddPrivateFont(wxString::FromUTF8((File::GetSysDirectory() + "SatsArena/DejaVuSansCondensed-BoldOblique.ttf").c_str()));
@@ -169,7 +169,7 @@ public:
         auto* phone_layout = new wxBoxSizer(wxHORIZONTAL);
         auto* website = new wxBoxSizer(wxVERTICAL);
         website->Add(Heading(m_phone_join, "JOIN ON YOUR PHONE", 9, MUTED), 0, wxBOTTOM, 3);
-        m_phone_website = Label(m_phone_join, "", 16, TEXT, true);
+        m_phone_website = Label(m_phone_join, "", 16, TEXT_COLOUR, true);
         m_phone_website->SetMinSize(wxSize(240, -1));
         website->Add(m_phone_website, 0, wxEXPAND);
         phone_layout->Add(website, 1, wxALL | wxALIGN_CENTER_VERTICAL, 8);
@@ -201,7 +201,7 @@ public:
         rules->Add(entry_rule, 1, wxRIGHT, 10);
         auto* rate_rule = new wxBoxSizer(wxVERTICAL);
         rate_rule->Add(Heading(this, "DAMAGE RATE", 8, MUTED), 0, wxBOTTOM, 2);
-        m_rate_rule = Heading(this, "...", 14, TEXT, wxST_ELLIPSIZE_END);
+        m_rate_rule = Heading(this, "...", 14, TEXT_COLOUR, wxST_ELLIPSIZE_END);
         m_rate_rule->SetMinSize(wxSize(100, -1));
         rate_rule->Add(m_rate_rule, 0, wxEXPAND);
         rules->Add(rate_rule, 1);
@@ -215,7 +215,7 @@ public:
         auto* summary_layout = new wxBoxSizer(wxVERTICAL);
         m_summary_title = Heading(m_summary, "Last match", 14, GOLD);
         summary_layout->Add(m_summary_title, 0, wxBOTTOM | wxEXPAND, 12);
-        summary_layout->Add(Label(m_summary, "Damage dealt (%)", 10, TEXT, true), 0, wxBOTTOM | wxEXPAND, 12);
+        summary_layout->Add(Label(m_summary, "Damage dealt (%)", 10, TEXT_COLOUR, true), 0, wxBOTTOM | wxEXPAND, 12);
         m_summary_grid = new wxPanel(m_summary);
         summary_layout->Add(m_summary_grid, 0, wxEXPAND | wxBOTTOM, 12);
         m_summary_note = Label(m_summary, "", 9, MUTED);
@@ -235,7 +235,7 @@ public:
             auto* row = new wxPanel(m_pairs[i / 2]);
             m_rows[i] = row;
             row->SetBackgroundColour(BACKGROUND);
-            row->SetForegroundColour(TEXT);
+            row->SetForegroundColour(TEXT_COLOUR);
             auto* info = new wxBoxSizer(wxVERTICAL);
             auto* heading = new wxBoxSizer(wxHORIZONTAL);
             m_player[i] = Heading(row, wxString::Format("PLAYER %d • Human", i + 1), 10, PLAYER_COLOURS[i], wxST_ELLIPSIZE_END);
@@ -251,7 +251,7 @@ public:
             m_address[i]->SetMinSize(wxSize(80, -1));
             m_address[i]->SetFont(wxFont(9, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
             m_address[i]->SetBackgroundColour(wxColour(36, 38, 46));
-            m_address[i]->SetForegroundColour(TEXT);
+            m_address[i]->SetForegroundColour(TEXT_COLOUR);
             m_address[i]->SetName(wxString::Format("Player %d Lightning Address", i + 1));
             m_address[i]->Bind(wxEVT_TEXT, std::function<void(wxCommandEvent&)>([this, i](wxCommandEvent&) {
                 m_addresses_dirty[i] = true;
@@ -291,7 +291,7 @@ public:
             m_edit_address[i]->SetName(wxString::Format("Edit Player %d receiving address", i + 1));
             m_edit_address[i]->SetNormalColour(MUTED);
             m_edit_address[i]->SetVisitedColour(MUTED);
-            m_edit_address[i]->SetHoverColour(TEXT);
+            m_edit_address[i]->SetHoverColour(TEXT_COLOUR);
             m_edit_address[i]->Bind(wxEVT_HYPERLINK, std::function<void(wxHyperlinkEvent&)>([this, i](wxHyperlinkEvent&) {
                 EditAddress(i);
             }));
@@ -322,8 +322,8 @@ public:
                 m_metrics[i]->Add(column, 1, wxEXPAND);
                 return value;
             };
-            m_pot[i] = metric("POT", TEXT);
-            m_paid_out[i] = metric("PAID OUT", TEXT);
+            m_pot[i] = metric("POT", TEXT_COLOUR);
+            m_paid_out[i] = metric("PAID OUT", TEXT_COLOUR);
             m_pending[i] = metric("PENDING", MUTED);
             // Keep the timer with its amount, including network-send time.
             m_pending_delay[i] = Label(row, "", 8, MUTED);
@@ -349,14 +349,14 @@ public:
         root->Add(m_error, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, MARGIN);
         auto* log_toggles = new wxBoxSizer(wxHORIZONTAL);
         m_show_activity = new wxCheckBox(this, wxID_ANY, "Match activity");
-        m_show_activity->SetForegroundColour(TEXT);
+        m_show_activity->SetForegroundColour(TEXT_COLOUR);
         log_toggles->Add(m_show_activity, 0, wxRIGHT, MARGIN);
         m_show_outbound = new wxCheckBox(this, wxID_ANY, "Outbound payments");
-        m_show_outbound->SetForegroundColour(TEXT);
+        m_show_outbound->SetForegroundColour(TEXT_COLOUR);
         m_show_outbound->SetToolTip("Debug all queued, in-flight, paid and failed payments, including earlier games. Select text to pause updates for copying.");
         log_toggles->Add(m_show_outbound, 0, wxRIGHT, 8);
         m_show_missed = new wxCheckBox(this, wxID_ANY, "Missed");
-        m_show_missed->SetForegroundColour(TEXT);
+        m_show_missed->SetForegroundColour(TEXT_COLOUR);
         m_show_missed->SetToolTip("Amounts still owed, receiving addresses, and which payments are safe to request after the match.");
         log_toggles->Add(m_show_missed, 0);
         m_last_match = new wxToggleButton(this, wxID_ANY, "Last match", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
@@ -425,7 +425,7 @@ public:
         m_outbound->SetName("Outbound payments debug log");
         m_outbound->SetMinSize(wxSize(1, 1));
         m_outbound->SetBackgroundColour(SURFACE);
-        m_outbound->SetForegroundColour(TEXT);
+        m_outbound->SetForegroundColour(TEXT_COLOUR);
         m_outbound->SetFont(wxFont(9, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
         outbound_layout->Add(m_outbound, 1, wxALL | wxEXPAND, 8);
         m_outbound_area->SetSizer(outbound_layout);
@@ -439,7 +439,7 @@ public:
         m_missed->SetName("Missed payments log");
         m_missed->SetMinSize(wxSize(1, 1));
         m_missed->SetBackgroundColour(SURFACE);
-        m_missed->SetForegroundColour(TEXT);
+        m_missed->SetForegroundColour(TEXT_COLOUR);
         missed_layout->Add(m_missed, 1, wxALL | wxEXPAND, 8);
         m_missed_area->SetSizer(missed_layout);
         logs_layout->Add(m_missed_area, 1, wxEXPAND);
@@ -512,16 +512,16 @@ private:
         for (std::size_t col = 1; col <= players.size(); ++col) grid->AddGrowableCol(static_cast<int>(col), 1);
         grid->Add(Label(m_summary_grid, "To →", 8, MUTED), 0, wxALIGN_CENTER_VERTICAL);
         for (int p : players) {
-            grid->Add(Label(m_summary_grid, wxString::Format("P%d", p + 1), 10, TEXT, true), 0, wxALIGN_CENTER);
+            grid->Add(Label(m_summary_grid, wxString::Format("P%d", p + 1), 10, TEXT_COLOUR, true), 0, wxALIGN_CENTER);
         }
         for (int attacker : players) {
-            grid->Add(Label(m_summary_grid, wxString::Format(view.summary_kinds[attacker] == 1 ? "P%d CPU" : "P%d", attacker + 1), 9, TEXT, true), 0, wxALIGN_CENTER_VERTICAL);
+            grid->Add(Label(m_summary_grid, wxString::Format(view.summary_kinds[attacker] == 1 ? "P%d CPU" : "P%d", attacker + 1), 9, TEXT_COLOUR, true), 0, wxALIGN_CENTER_VERTICAL);
             for (int victim : players) {
                 const auto centi = view.summary_damage_centi[attacker][victim];
                 const wxString value = attacker == victim ? wxString("—") :
                     (!view.summary_complete && centi == 0 ? wxString("?") : wxString::Format("%llu.%02llu%%",
                         static_cast<unsigned long long>(centi / 100), static_cast<unsigned long long>(centi % 100)));
-                auto* cell = Label(m_summary_grid, value, 10, attacker == victim ? MUTED : TEXT);
+                auto* cell = Label(m_summary_grid, value, 10, attacker == victim ? MUTED : TEXT_COLOUR);
                 cell->SetToolTip(wxString::Format("P%d → P%d: %s", attacker + 1, victim + 1, value));
                 grid->Add(cell, 0, wxALIGN_CENTER);
             }
@@ -662,7 +662,7 @@ private:
 		m_discard->Enable(view.unsent_sats != 0 && !view.busy);
         m_payable_missed_sats = view.payable_missed_sats;
         m_pay_missed->Enable(view.payable_missed_sats > 0 && !view.busy);
-        m_show_missed->SetForegroundColour(view.missed_sats ? ACCENT : TEXT);
+        m_show_missed->SetForegroundColour(view.missed_sats ? ACCENT : TEXT_COLOUR);
         m_show_missed->SetToolTip(wxString::Format("%llu sats missed; %llu sats safe to request after match. Open for amounts, addresses, and status.",
             static_cast<unsigned long long>(view.missed_sats), static_cast<unsigned long long>(view.payable_missed_sats)));
         if (m_missed->GetStringSelection().empty()) {
@@ -950,7 +950,7 @@ private:
             }
             m_pot[i]->SetLabel(wxString::Format("%llu sats", static_cast<unsigned long long>(view.remaining_sats[i])));
             m_paid_out[i]->SetLabel(wxString::Format("%llu sats", static_cast<unsigned long long>(view.earned_sats[i])));
-            m_paid_out[i]->SetForegroundColour(view.earned_sats[i] ? GREEN : TEXT);
+            m_paid_out[i]->SetForegroundColour(view.earned_sats[i] ? GREEN : TEXT_COLOUR);
             m_pending[i]->SetLabel(wxString::Format("%llu sats", static_cast<unsigned long long>(view.pending_sats[i])));
             m_pending[i]->SetForegroundColour(view.pending_sats[i] ? ACCENT : MUTED);
             m_pending_delay[i]->SetLabel(view.batch_remaining_ms[i] ? wxString::Format("in %llus", static_cast<unsigned long long>((view.batch_remaining_ms[i] + 999) / 1000)) : wxString("Sending..."));
