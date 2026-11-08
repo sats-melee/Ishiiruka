@@ -7,11 +7,11 @@
   "mode": "local VS and rollback-finalized online credits",
   "entry": "0x8003EB30",
   "expected_prologue": "7c0802a690010004",
-  "asm_base_commit": "5b50fb142c2e83f41b8c2609642517818fdafd1f",
+  "asm_base_commit": "306f9accdca202d1c948963f373eae5b5238c930",
   "gecko_commit": "edba7fd9efcd5a4df753aee7a938cb2ff6604690",
   "source_sha256": {
     "Online/Online.s": "3b22b3e6075ba72b51bf8c30af6104c9be0d03892b69cb722b6f72fed09a9a11",
-    "Online/Menus/TitleMenu/ArenaRoomMenu.asm": "9602c32f8c0daa438b3448a49bfcd5e9f9fc454f8fa49adbf63fd95f0540e9e8",
+    "Arena/ArenaRoomMenu.asm": "9602c32f8c0daa438b3448a49bfcd5e9f9fc454f8fa49adbf63fd95f0540e9e8",
     "Online/Menus/TitleMenu/OnMenuPrep.asm": "624134d8c0819cffbac543335567168f4a91c15a1e6e763bcba947ff927b3a79",
     "Online/Menus/TitleMenu/HandleOnlineLockedOptions.asm": "a9291a7f00732980aee2cfd3515980be78f4fd72e8c06096289266c5522e48bd",
     "Online/Menus/CSS/LoadCSSText.asm": "1d2b3c411fac2945d5b889680ac1af0d9e71c3790b6e484348657d75e20602c9",
@@ -30,7 +30,7 @@
     "Recording/FlushFrameBuffer.asm": "d575a4ca55f8119c43a095a4d62837a6b36b2319c95ec9b26ad70026ac11a139",
     "build-arena.sh": "55e491b4ba007eae59081e2550346e19037a7cc687f009bf944dc7d2fb38caf7"
   },
-  "codeset_sha256": "ff42b7ac478be982adc695a8374ec7adb4f606a9030290c7ae96ed686735a5a7",
+  "codeset_sha256": "a1c257dabbaa86d198d61c36afcaa87a3ed2814fda3d7221f27bc14af690b19d",
   "not_for_settlement": true,
   "online": {
     "scene": "0x0208",
@@ -70,5 +70,5 @@
     "reset_instruction": "900db638"
   },
   "asm_repository": "https://github.com/sats-melee/slippi-ssbm-asm",
-  "asm_source_commit": "878fc4fb8c03738ab67b94f956bb5e10a3c3ba57"
+  "asm_source_commit": "df1bc8112ba7e9fd98fb02dc7052ed5795e972c8"
 }

@@ -6,6 +6,15 @@ RUNNER=()
 if ! command -v g++ >/dev/null; then
   RUNNER=(distrobox enter --name slippi-arena-build --no-tty --)
 fi
+"${RUNNER[@]}" python3 - "$ROOT" <<'CHECK_CODESET'
+from pathlib import Path
+import hashlib, json, sys
+root = Path(sys.argv[1])
+manifest = json.loads((root/'Tools/arena/codeset-manifest.json').read_text())
+assert hashlib.sha256((root/'Data/Sys/GameSettings/GALE01r2.ini').read_bytes()).hexdigest() == manifest['codeset_sha256']
+assert 'Arena/ArenaRoomMenu.asm' in manifest['source_sha256']
+print('PASS: packaged codeset matches its Arena-only room-hook provenance')
+CHECK_CODESET
 mkdir -p "$ROOT/build-arena/tests"
 "${RUNNER[@]}" \
   g++ -std=c++14 -Wall -Wextra -Werror -pedantic -pthread \

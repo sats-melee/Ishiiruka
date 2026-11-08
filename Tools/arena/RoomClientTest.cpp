@@ -114,6 +114,9 @@ int main(int argc, char** argv)
     }
     assert(argc == 1);
     assert(SatsArenaRoomClient::SetCreateConfig(SatsArenaNetplay::Config()));
+    SatsArenaNetplay::Config config;
+    config.player_count = 2;
+    assert(SatsArenaRoomClient::SetCreateConfig(config));
     auto host = std::make_unique<SatsArenaRoomClient>(true, "", "127.0.0.1:43213");
     for (int i = 0; i < 100 && host->GetRoomCode().empty(); ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
