@@ -72,12 +72,20 @@ def check_wallet(command, env):
             'invalid_configuration': True, 'network_connection_attempted': False, 'invoice_requested': False}
 
 
-def gui_load(binary, profile, env):
+ROOM_PANEL_NOTICE = '[Arena] Room panel ready (create/join)'
+
+
+def gui_load(binary, profile, env, room_mode=False):
     user = profile/'dolphin-user'
     (user/'Config').mkdir(parents=True)
     (user/'Config/Dolphin.ini').write_text('[Interface]\nConfirmStop = False\nPauseOnFocusLost = False\n'
         '[Core]\nCPUThread = True\n[Display]\nRenderToMain = True\nFullscreen = False\n[DSP]\nBackend = Null\n')
     gui_env = dict(env, SATS_ARENA_FAKE_LOCAL='0')
+    if room_mode:
+        gui_env.update(SATS_ARENA_NETPLAY_ROOMS='1', SATS_ARENA_ROOM_SERVER_URL='http://127.0.0.1:9')
+        (user/'Logs').mkdir()
+        (user/'Config/Logger.ini').write_text('[Options]\nWriteToFile = True\nWriteToConsole = False\n'
+                                            '[Logs]\nSLIPPI_ONLINE = True\n')
     with (profile/'gui-load.log').open('w+') as log:
         process = subprocess.Popen([str(binary), '-u', str(user)], cwd=binary.parent, env=gui_env,
                                    stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
@@ -98,8 +106,13 @@ def gui_load(binary, profile, env):
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
+    if room_mode:
+        log = user/'Logs/dolphin.log'
+        if not log.is_file() or ROOM_PANEL_NOTICE not in log.read_text(errors='replace'):
+            raise RuntimeError('Packaged game did not create the multiplayer room panel')
     return {'started_without_iso': True, 'isolated_profile': True, 'payment_gate_disabled': True,
-            'alive_seconds': 8, 'test_process_stopped': True}
+            'alive_seconds': 8, 'test_process_stopped': True,
+            'room_mode': room_mode, 'room_panel_notice': ROOM_PANEL_NOTICE if room_mode else None}
 
 
 def smoke(args):
@@ -126,6 +139,8 @@ def smoke(args):
                   'wallet_checker': check_wallet([str(paths['wallet_checker'])], env), 'payment_operations': False}
         if args.gui_load:
             result['gui_load'] = gui_load(paths['game'], profile, env)
+        if args.room_ui_load:
+            result['room_ui_load'] = gui_load(paths['game'], profile/'room-ui', env, room_mode=True)
         return result
 
 
@@ -137,6 +152,7 @@ def main():
     parser.add_argument('--slippi-library', type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--gui-load', action='store_true')
+    parser.add_argument('--room-ui-load', action='store_true')
     args = parser.parse_args()
     try:
         result = smoke(args)

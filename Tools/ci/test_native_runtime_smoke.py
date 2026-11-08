@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location('smoke', Path(__file__).with_name('smoke-native-runtime.py'))
 smoke = importlib.util.module_from_spec(spec)
@@ -46,7 +46,7 @@ class SmokeChecks(unittest.TestCase):
         arm = bytearray(64); arm[:6] = b'\x7fELF\x02\x01'; arm[18:20] = b'\xb7\x00'
         path = self.file('arm64', arm)
         self.assertEqual(smoke.architecture(path), 'arm64')
-        args = argparse.Namespace(binary=path, checker=path, library=path, slippi_library=None, gui_load=False)
+        args = argparse.Namespace(binary=path, checker=path, library=path, slippi_library=None, gui_load=False, room_ui_load=False)
         with patch.object(smoke, 'check_wallet') as check:
             with self.assertRaisesRegex(ValueError, 'expected x86_64'):
                 smoke.smoke(args)
@@ -61,7 +61,7 @@ class SmokeChecks(unittest.TestCase):
 
     def test_missing_file_is_reported_before_any_process(self):
         missing = self.root/'missing'
-        args = argparse.Namespace(binary=missing, checker=missing, library=missing, slippi_library=None, gui_load=False)
+        args = argparse.Namespace(binary=missing, checker=missing, library=missing, slippi_library=None, gui_load=False, room_ui_load=False)
         with patch.object(smoke, 'check_wallet') as check:
             with self.assertRaisesRegex(ValueError, 'Missing packaged file'):
                 smoke.smoke(args)
@@ -71,7 +71,7 @@ class SmokeChecks(unittest.TestCase):
         pe = bytearray(134); pe[:2] = b'MZ'; pe[60:64] = b'\x80\0\0\0'; pe[128:134] = b'PE\0\0\x64\x86'
         binary = self.file('game.exe', pe)
         names = ('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
-        args = argparse.Namespace(binary=binary, checker=binary, library=binary, slippi_library=None, gui_load=False)
+        args = argparse.Namespace(binary=binary, checker=binary, library=binary, slippi_library=None, gui_load=False, room_ui_load=False)
         for missing in names:
             for name in names: self.file(name, pe)
             (self.root/missing).unlink()
@@ -86,7 +86,7 @@ class SmokeChecks(unittest.TestCase):
         binary = self.file('game.exe', pe)
         names = ('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
         for name in names: self.file(name, pe)
-        args = argparse.Namespace(binary=binary, checker=binary, library=binary, slippi_library=None, gui_load=False)
+        args = argparse.Namespace(binary=binary, checker=binary, library=binary, slippi_library=None, gui_load=False, room_ui_load=False)
         with patch.object(smoke.sys, 'platform', 'win32'), patch.object(smoke, 'check_wallet', return_value={'ok': False}):
             result = smoke.smoke(args)
         self.assertTrue(all(result['files'][name]['architecture'] == 'x86_64' for name in names))
@@ -150,6 +150,33 @@ class SmokeChecks(unittest.TestCase):
             process.wait.assert_called_once_with(timeout=5)
             process.kill.assert_not_called()
             self.assertTrue(result['started_without_iso'])
+
+    def test_room_mode_requires_notice_from_the_actual_sidebar(self):
+        with patch.object(smoke.subprocess, 'Popen') as popen, \
+             patch.object(smoke.time, 'monotonic', side_effect=[0, 8]):
+            process = popen.return_value; process.poll.return_value = None
+            with self.assertRaisesRegex(RuntimeError, 'did not create the multiplayer room panel'):
+                smoke.gui_load(self.root/'game', self.root, {}, room_mode=True)
+            env = popen.call_args.kwargs['env']
+            self.assertEqual(env['SATS_ARENA_NETPLAY_ROOMS'], '1')
+            self.assertEqual(env['SATS_ARENA_ROOM_SERVER_URL'], 'http://127.0.0.1:9')
+            self.assertEqual(env['SATS_ARENA_FAKE_LOCAL'], '0')
+            process.terminate.assert_called_once()
+            process.wait.assert_called_once_with(timeout=5)
+
+    def test_room_mode_accepts_notice_in_its_isolated_profile_only(self):
+        process = Mock(); process.poll.return_value = None
+        def start(*args, **kwargs):
+            user = Path(args[0][2])
+            (user/'Logs/dolphin.log').write_text('notice ' + smoke.ROOM_PANEL_NOTICE + '\n')
+            return process
+        with patch.object(smoke.subprocess, 'Popen', side_effect=start), \
+             patch.object(smoke.time, 'monotonic', side_effect=[0, 8]):
+            result = smoke.gui_load(self.root/'game', self.root, {}, room_mode=True)
+        self.assertTrue(result['room_mode'])
+        self.assertEqual(result['room_panel_notice'], smoke.ROOM_PANEL_NOTICE)
+        process.terminate.assert_called_once()
+        process.wait.assert_called_once_with(timeout=5)
 
     def test_early_gui_exit_fails_without_killing_an_unrelated_process(self):
         with patch.object(smoke.subprocess, 'Popen') as popen, \
