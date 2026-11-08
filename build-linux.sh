@@ -1,7 +1,7 @@
 #!/bin/bash -e
 # build-linux.sh
 
-CMAKE_FLAGS='-DLINUX_LOCAL_DEV=true'
+CMAKE_FLAGS='-DLINUX_LOCAL_DEV=true -DENABLE_SATS_ARENA=ON'
 
 PLAYBACK_CODES_PATH="./Data/PlaybackGeckoCodes/"
 

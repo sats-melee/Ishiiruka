@@ -1,7 +1,7 @@
 #!/bin/bash -e
 # build-mac.sh
 
-CMAKE_FLAGS=''
+CMAKE_FLAGS='-DENABLE_SATS_ARENA=ON -DCMAKE_OSX_ARCHITECTURES=x86_64'
 
 PLAYBACK_CODES_PATH="./Data/PlaybackGeckoCodes/"
 

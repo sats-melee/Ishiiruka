@@ -60,6 +60,8 @@
       <Command>
         cd $(ExternalsDir)SlippiRustExtensions
         cargo build --target x86_64-pc-windows-msvc --release
+        cd $(DolphinRootDir)..\sats-arena
+        cargo build --release --target x86_64-pc-windows-msvc -p sats-arena-local
       </Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
@@ -73,6 +75,8 @@
       <Command>
         cd $(ExternalsDir)SlippiRustExtensions
         cargo build --target x86_64-pc-windows-msvc --release --features playback
+        cd $(DolphinRootDir)..\sats-arena
+        cargo build --release --target x86_64-pc-windows-msvc -p sats-arena-local
       </Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
@@ -197,7 +201,10 @@
     <ClCompile Include="HW\EXI_DeviceIPL.cpp" />
     <ClCompile Include="HW\EXI_DeviceMemoryCard.cpp" />
     <ClCompile Include="HW\EXI_DeviceMic.cpp" />
-    <ClCompile Include="HW\EXI_DeviceSlippi.cpp" />
+    <ClCompile Include="HW\EXI_DeviceSlippi.cpp">
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|x64'">SATS_ARENA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='ReleasePlayback|x64'">SATS_ARENA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
     <ClCompile Include="HW\GCKeyboard.cpp" />
     <ClCompile Include="HW\GCKeyboardEmu.cpp" />
     <ClCompile Include="HW\GCMemcard.cpp" />
@@ -325,6 +332,7 @@
     <ClCompile Include="PowerPC\PPCTables.cpp" />
     <ClCompile Include="PowerPC\Profiler.cpp" />
     <ClCompile Include="PowerPC\SignatureDB.cpp" />
+    <ClCompile Include="Slippi\SatsArenaTracker.cpp" />
     <ClCompile Include="Slippi\SlippiDirectCodes.cpp" />
     <ClCompile Include="Slippi\SlippiPlayback.cpp" />
     <ClCompile Include="Slippi\SlippiTimer.cpp" />

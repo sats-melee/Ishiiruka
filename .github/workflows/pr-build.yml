@@ -11,6 +11,13 @@ on:
     branches:
       - slippi
 
+defaults:
+  run:
+    working-directory: Ishiiruka
+
+permissions:
+  contents: read
+
 jobs:
 
   skip_duplicates:
@@ -33,6 +40,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          path: Ishiiruka
       - name: Main Branch Check
         shell: bash
         run: |
@@ -64,6 +73,13 @@ jobs:
         uses: actions/checkout@v6
         with:
           submodules: recursive
+          path: Ishiiruka
+      - name: Checkout pinned Arena engine
+        uses: actions/checkout@v6
+        with:
+          repository: sats-melee/sats-arena
+          ref: 3384425187b945e1b6b7e7e2dca3c4168e739137
+          path: sats-arena
       - id: rust_ver
         name: Grab Rust Version
         shell: bash
@@ -75,6 +91,8 @@ jobs:
           rustflags: ""  # Disable default injection of warnings = errors.
       - name: "(SlippiRustExtensions) Run cargo test"
         run: cargo test --all --all-features --manifest-path=Externals/SlippiRustExtensions/Cargo.toml
+      - name: Build Arena Rust library
+        run: cargo build --release --target x86_64-pc-windows-msvc -p sats-arena-local --manifest-path=../sats-arena/Cargo.toml
       - name: "Remove Redistributable"
         shell: cmd
         run: |
@@ -99,16 +117,16 @@ jobs:
       - name: "Build ${{ matrix.build_type }} Dolphin"
         shell: cmd
         run: |
-          msbuild /p:Configuration=${{ matrix.build_config }} /p:Platform=x64 ${{ github.workspace }}\Source\Dolphin.sln
+          msbuild /p:Configuration=${{ matrix.build_config }} /p:Platform=x64 ${{ github.workspace }}\Ishiiruka\Source\Dolphin.sln
       - name: "Prepare ${{ matrix.build_type }} Artifact"
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ github.workspace }}/Ishiiruka
         run: |
           Xcopy /Y /E /I .\Data\Sys .\Binary\x64\Sys
           cd .\Binary\x64\
           fsutil file createnew FIX-VCRUNTIME140-ERROR.txt 0
           echo "Download and install this: https://aka.ms/vs/16/release/vc_redist.x64.exe" > .\FIX-VCRUNTIME140-ERROR.txt
       - name: "Add Playback codes"
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ github.workspace }}/Ishiiruka
         if: matrix.build_type == 'Playback'
         run: |
           Xcopy /Y /E /I .\Data\Sys .\Binary\x64\Sys
@@ -138,13 +156,13 @@ jobs:
           signing-account-name: slippi
           certificate-profile-name: slippi-release
           files: |
-            ${{ github.workspace }}\Binary\x64\Slippi Dolphin.exe
-            ${{ github.workspace }}\Binary\x64\slippi_rust_extensions.dll
+            ${{ github.workspace }}\Ishiiruka\Binary\x64\Slippi Dolphin.exe
+            ${{ github.workspace }}\Ishiiruka\Binary\x64\slippi_rust_extensions.dll
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
       - name: "Package ${{ matrix.build_type }} Dolphin"
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ github.workspace }}/Ishiiruka
         run: |
           $FILE_NAME="${{ env.CURR_DATE }}-${{ env.GIT_HASH }}-${{ env.GIT_TAG }}-${{ matrix.artifact_name }}.zip"
           mkdir artifact
@@ -153,12 +171,22 @@ jobs:
           fsutil file createnew portable.txt 0
           7z a $FILE_NAME .\*
           move $FILE_NAME ..\..\artifact\
+      - name: Test relocated Windows package offline
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/arena-windows-relocated"
+          7z x -y artifact/*-windows-*.zip -o"$RUNNER_TEMP/arena-windows-relocated" >/dev/null
+          app="$RUNNER_TEMP/arena-windows-relocated"
+          python Tools/ci/smoke-native-runtime.py \
+            --binary "$app/Slippi Dolphin.exe" --checker "$app/sats-arena-wallet-check.exe" \
+            --library "$app/sats_arena_local.dll" --slippi-library "$app/slippi_rust_extensions.dll" \
+            --output artifact/native-smoke.json --gui-load
       - name: "Publish"
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: "./artifact/"
+          path: "./Ishiiruka/artifact/"
 
   linux:
     needs: [skip_duplicates]
@@ -181,9 +209,16 @@ jobs:
         uses: actions/checkout@v6
         with:
           submodules: recursive
+          path: Ishiiruka
+      - name: Checkout pinned Arena engine
+        uses: actions/checkout@v6
+        with:
+          repository: sats-melee/sats-arena
+          ref: 3384425187b945e1b6b7e7e2dca3c4168e739137
+          path: sats-arena
       - name: Check native release selection
         if: matrix.build_type == 'Netplay'
-        run: python3 Tools/ci/test_release_artifacts.py
+        run: python3 -m unittest discover -s Tools/ci -p 'test_*.py'
       - name: 'Fetch Git Tags'
         if: success()
         run: |
@@ -234,7 +269,9 @@ jobs:
           qtbase5-private-dev \
           libxxf86vm-dev \
           x11proto-xinerama-dev \
-          libfuse2
+          libfuse2 \
+          xvfb \
+          xauth
       - id: rust_ver
         name: Grab Rust Version
         shell: bash
@@ -248,18 +285,18 @@ jobs:
         run: cargo test --all --all-features --manifest-path=Externals/SlippiRustExtensions/Cargo.toml
       - name: "Build ${{ matrix.build_type }} Dolphin"
         if: success()
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ github.workspace }}/Ishiiruka
         run: |
           ./build-linux.sh ${{ matrix.build_config }}
       - name: "Build ${{ matrix.build_type }} AppImage"
         if: success()
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ github.workspace }}/Ishiiruka
         run: |
           chmod +x ./build-appimage.sh
           ./build-appimage.sh ${{ matrix.build_config }}
       - name: "Package"
         if: success()
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ github.workspace }}/Ishiiruka
         run: |
           mkdir artifact
           FILE_NAME=${{ env.CURR_DATE }}-${{ env.GIT_HASH }}-${{ env.GIT_TAG }}-${{ matrix.artifact_name }}.zip
@@ -269,12 +306,23 @@ jobs:
           zip -r -u "../../../${FILE_NAME}" ./Sys
           popd
           mv "${FILE_NAME}" ./artifact/
+      - name: Test relocated Linux package offline
+        run: |
+          image=Slippi_Playback-x86_64.AppImage
+          if [[ "${{ matrix.build_type }}" == Netplay ]]; then image=Sats-Arena-x86_64.AppImage; fi
+          mkdir -p "$RUNNER_TEMP/arena-linux-relocated"
+          (cd "$RUNNER_TEMP/arena-linux-relocated" && "$GITHUB_WORKSPACE/Ishiiruka/$image" --appimage-extract >/dev/null)
+          app="$RUNNER_TEMP/arena-linux-relocated/squashfs-root"
+          xvfb-run -a python3 Tools/ci/smoke-native-runtime.py \
+            --binary "$app/usr/bin/dolphin-emu" --checker "$app/usr/bin/sats-arena-wallet-check" \
+            --library "$app/usr/lib/libsats_arena_local.so" --slippi-library "$app/usr/lib/libslippi_rust_extensions.so" \
+            --output artifact/native-smoke.json --gui-load
       - name: "Publish"
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: "./artifact/"
+          path: "./Ishiiruka/artifact/"
 
   macOS:
     needs: [skip_duplicates]
@@ -297,6 +345,13 @@ jobs:
         uses: actions/checkout@v6
         with:
           submodules: recursive
+          path: Ishiiruka
+      - name: Checkout pinned Arena engine
+        uses: actions/checkout@v6
+        with:
+          repository: sats-melee/sats-arena
+          ref: 3384425187b945e1b6b7e7e2dca3c4168e739137
+          path: sats-arena
       - name: 'Fetch Git Tags'
         if: success()
         run: |
@@ -308,7 +363,7 @@ jobs:
       # - name: "Install 10.14 SDK"
       #   if: success()
       #   shell: bash
-      #   working-directory: ${{ github.workspace }}
+      #   working-directory: ${{ github.workspace }}/Ishiiruka
       #   run: |
       #     wget https://github.com/phracker/MacOSX-SDKs/releases/download/10.15/MacOSX10.14.sdk.tar.xz
       #     tar -xf MacOSX10.14.sdk.tar.xz
@@ -344,7 +399,7 @@ jobs:
       - name: "Build ${{ matrix.build_type }} Dolphin"
         if: success()
         shell: bash
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ github.workspace }}/Ishiiruka
         env:
           CERTIFICATE_MACOS_APPLICATION: ${{ secrets.CERTIFICATE_MACOS_APPLICATION }}
         run: |
@@ -353,10 +408,34 @@ jobs:
           mkdir artifact
           FILE_NAME=${{ env.CURR_DATE }}-${{ env.GIT_HASH }}-${{ env.GIT_TAG }}-${{ matrix.artifact_name }}
           echo "FILE_NAME=$FILE_NAME" >> $GITHUB_ENV
+      - name: Bundle Arena checker and Intel Rust libraries
+        run: |
+          app="build/Binaries/Slippi Dolphin.app"
+          mkdir -p "$app/Contents/Frameworks"
+          cp build/Binaries/sats-arena-wallet-check "$app/Contents/MacOS/"
+          for name in libsats_arena_local libslippi_rust_extensions; do
+            cp "build/Source/Core/DolphinWX/$name.dylib" "$app/Contents/Frameworks/"
+            install_name_tool -id "@rpath/$name.dylib" "$app/Contents/Frameworks/$name.dylib"
+          done
+          for executable in "$app/Contents/MacOS/Slippi Dolphin" "$app/Contents/MacOS/sats-arena-wallet-check"; do
+            if ! otool -l "$executable" | grep -q 'path @executable_path/../Frameworks'; then
+              install_name_tool -add_rpath @executable_path/../Frameworks "$executable"
+            fi
+            for name in libsats_arena_local libslippi_rust_extensions; do
+              old=$(otool -L "$executable" | { grep "$name.dylib" || true; } | awk '{print $1}' | head -1)
+              if [[ -n "$old" && "$old" != "@rpath/$name.dylib" ]]; then
+                install_name_tool -change "$old" "@rpath/$name.dylib" "$executable"
+              fi
+            done
+            if otool -L "$executable" | grep -E '/(Users/runner|usr/local|opt/homebrew)/'; then
+              echo 'Unbundled build-machine library dependency' >&2; exit 1
+            fi
+          done
+          codesign --force --deep --sign - "$app"
       - name: "Codesign ${{ matrix.build_type}} Dolphin"
         if: success() && env.CERTIFICATE_MACOS_APPLICATION != null
         shell: bash
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ github.workspace }}/Ishiiruka
         env:
           CERTIFICATE_MACOS_APPLICATION: ${{ secrets.CERTIFICATE_MACOS_APPLICATION }}
           CERTIFICATE_MACOS_PASSWORD: ${{ secrets.CERTIFICATE_MACOS_PASSWORD }}
@@ -368,9 +447,10 @@ jobs:
       - name: "Package ${{ matrix.build_type }} Release DMG"
         if: success()
         shell: bash
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ github.workspace }}/Ishiiruka
         run: |
-          rm build/Binaries/traversal_server
+          mkdir -p build/native-dmg
+          ditto "build/Binaries/Slippi Dolphin.app" "build/native-dmg/Slippi Dolphin.app"
           chmod +x Tools/create-dmg/run.sh
           ./Tools/create-dmg/run.sh --no-internet-enable \
             --volname "Slippi Dolphin Installer" \
@@ -384,12 +464,12 @@ jobs:
             --icon "Slippi Dolphin.app" 140 196 \
             --hide-extension "Slippi Dolphin.app" \
             "${{ env.FILE_NAME }}.dmg" \
-            "./build/Binaries/"
+            "./build/native-dmg/"
           mv "${{ env.FILE_NAME }}.dmg" artifact/
       - name: "Sign and Notarize ${{ matrix.build_type }} Release DMG"
         if: success() && env.CERTIFICATE_MACOS_APPLICATION != null
         shell: bash
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ github.workspace }}/Ishiiruka
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_ISSUER_ID: ${{ secrets.APPLE_ISSUER_ID }}
@@ -397,12 +477,24 @@ jobs:
         run: |
           /usr/bin/codesign -f -s "${{ secrets.APPLE_IDENTITY_HASH }}" --deep --options runtime ./artifact/${{ env.FILE_NAME }}.dmg
           chmod +x Tools/notarize_netplay.sh && ./Tools/notarize_netplay.sh ./artifact/${{ env.FILE_NAME }}.dmg
+      - name: Test relocated Intel macOS package offline
+        run: |
+          mount="$RUNNER_TEMP/arena-native-dmg"
+          app="$RUNNER_TEMP/arena-macos-relocated/Slippi Dolphin.app"
+          mkdir -p "$(dirname "$app")"
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount" "artifact/$FILE_NAME.dmg"
+          ditto "$mount/Slippi Dolphin.app" "$app"
+          hdiutil detach "$mount"
+          python3 Tools/ci/smoke-native-runtime.py \
+            --binary "$app/Contents/MacOS/Slippi Dolphin" --checker "$app/Contents/MacOS/sats-arena-wallet-check" \
+            --library "$app/Contents/Frameworks/libsats_arena_local.dylib" --slippi-library "$app/Contents/Frameworks/libslippi_rust_extensions.dylib" \
+            --output artifact/native-smoke.json --gui-load
       - name: "Publish"
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: "./artifact/"
+          path: "./Ishiiruka/artifact/"
       #- name: "Enable Admin Debugging via SSH (if failed)"
       # if: failure()
       # uses: luchihoratiu/debug-via-ssh@main

@@ -161,6 +161,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "open-vcdiff", "..\Externals
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "semver", "..\Externals\semver\semver.vcxproj", "{0EBBDAFA-3A7D-46D0-B0EE-F53D7DD6F571}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "WalletCheck", "Core\DolphinWX\WalletCheck.vcxproj", "{8BBF7109-BEF5-40A6-8324-04D304712F13}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -169,6 +171,12 @@ Global
 		ReleasePlayback|x64 = ReleasePlayback|x64
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8BBF7109-BEF5-40A6-8324-04D304712F13}.Debug|x64.ActiveCfg = Release|x64
+		{8BBF7109-BEF5-40A6-8324-04D304712F13}.DebugFast|x64.ActiveCfg = Release|x64
+		{8BBF7109-BEF5-40A6-8324-04D304712F13}.Release|x64.ActiveCfg = Release|x64
+		{8BBF7109-BEF5-40A6-8324-04D304712F13}.Release|x64.Build.0 = Release|x64
+		{8BBF7109-BEF5-40A6-8324-04D304712F13}.ReleasePlayback|x64.ActiveCfg = ReleasePlayback|x64
+		{8BBF7109-BEF5-40A6-8324-04D304712F13}.ReleasePlayback|x64.Build.0 = ReleasePlayback|x64
 		{1B099EF8-6F87-47A2-A3E7-898A24584F49}.Debug|x64.ActiveCfg = Debug|x64
 		{1B099EF8-6F87-47A2-A3E7-898A24584F49}.Debug|x64.Build.0 = Debug|x64
 		{1B099EF8-6F87-47A2-A3E7-898A24584F49}.DebugFast|x64.ActiveCfg = DebugFast|x64
