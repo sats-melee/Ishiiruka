@@ -116,6 +116,7 @@
     </PreLinkEvent>
     <ClCompile>
       <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(ExternalsDir)zlib;$(ExternalsDir)SlippiLib;$(ExternalsDir)nlohmann;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='ReleasePlayback|x64'">$(ExternalsDir)zlib;$(ExternalsDir)SlippiLib;$(ExternalsDir)nlohmann;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <ClCompile>
       <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='DebugFast|x64'">$(ExternalsDir)nlohmann;$(ExternalsDir)zlib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
