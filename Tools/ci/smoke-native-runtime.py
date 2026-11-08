@@ -106,6 +106,10 @@ def smoke(args):
     paths = {'game': args.binary, 'wallet_checker': args.checker, 'arena_library': args.library}
     if args.slippi_library is not None:
         paths['slippi_library'] = args.slippi_library
+    if sys.platform == 'win32':
+        # CI has a global CRT installed; require app-local copies for fresh PCs.
+        for name in ('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'):
+            paths[name] = args.binary.parent/name
     files = {}
     for name, original in paths.items():
         path = original.expanduser().resolve()

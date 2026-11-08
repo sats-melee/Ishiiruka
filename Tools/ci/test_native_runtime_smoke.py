@@ -67,6 +67,36 @@ class SmokeChecks(unittest.TestCase):
                 smoke.smoke(args)
             check.assert_not_called()
 
+    def test_windows_requires_every_app_local_crt_before_running_checker(self):
+        pe = bytearray(134); pe[:2] = b'MZ'; pe[60:64] = b'\x80\0\0\0'; pe[128:134] = b'PE\0\0\x64\x86'
+        binary = self.file('game.exe', pe)
+        names = ('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
+        args = argparse.Namespace(binary=binary, checker=binary, library=binary, slippi_library=None, gui_load=False)
+        for missing in names:
+            for name in names: self.file(name, pe)
+            (self.root/missing).unlink()
+            with self.subTest(missing=missing), patch.object(smoke.sys, 'platform', 'win32'), \
+                 patch.object(smoke, 'check_wallet') as check:
+                with self.assertRaisesRegex(ValueError, 'Missing packaged file.*' + missing):
+                    smoke.smoke(args)
+                check.assert_not_called()
+
+    def test_windows_crt_is_architecture_checked_and_recorded(self):
+        pe = bytearray(134); pe[:2] = b'MZ'; pe[60:64] = b'\x80\0\0\0'; pe[128:134] = b'PE\0\0\x64\x86'
+        binary = self.file('game.exe', pe)
+        names = ('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
+        for name in names: self.file(name, pe)
+        args = argparse.Namespace(binary=binary, checker=binary, library=binary, slippi_library=None, gui_load=False)
+        with patch.object(smoke.sys, 'platform', 'win32'), patch.object(smoke, 'check_wallet', return_value={'ok': False}):
+            result = smoke.smoke(args)
+        self.assertTrue(all(result['files'][name]['architecture'] == 'x86_64' for name in names))
+        arm = bytearray(pe); arm[132:134] = b'\x64\xaa'
+        self.file('vcruntime140_1.dll', arm)
+        with patch.object(smoke.sys, 'platform', 'win32'), patch.object(smoke, 'check_wallet') as check:
+            with self.assertRaisesRegex(ValueError, 'architecture is arm64'):
+                smoke.smoke(args)
+            check.assert_not_called()
+
     def test_environment_uses_fresh_profile_and_removes_wallet_and_loader_overrides(self):
         inherited = {'SATS_ARENA_NWC_URI': 'synthetic', 'SATS_ARENA_WALLET_CONFIG': 'stdin',
                      'LD_LIBRARY_PATH': '/build/lib', 'LD_PRELOAD': '/build/shim.so',

@@ -118,13 +118,19 @@ jobs:
         shell: cmd
         run: |
           msbuild /p:Configuration=${{ matrix.build_config }} /p:Platform=x64 ${{ github.workspace }}\Ishiiruka\Source\Dolphin.sln
+      - name: Bundle x64 Microsoft C++ runtime
+        shell: powershell
+        run: |
+          $installation = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -property installationPath
+          if (!$installation) { throw "Visual Studio installation not found" }
+          $runtime = Get-ChildItem -Path "$installation\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT" -Directory |
+            Sort-Object { [version]$_.Parent.Parent.Name } -Descending | Select-Object -First 1
+          if (!$runtime) { throw "Visual Studio x64 CRT redistributables not found" }
+          Copy-Item -Path "$($runtime.FullName)\*.dll" -Destination .\Binary\x64\ -Force
       - name: "Prepare ${{ matrix.build_type }} Artifact"
         working-directory: ${{ github.workspace }}/Ishiiruka
         run: |
           Xcopy /Y /E /I .\Data\Sys .\Binary\x64\Sys
-          cd .\Binary\x64\
-          fsutil file createnew FIX-VCRUNTIME140-ERROR.txt 0
-          echo "Download and install this: https://aka.ms/vs/16/release/vc_redist.x64.exe" > .\FIX-VCRUNTIME140-ERROR.txt
       - name: "Add Playback codes"
         working-directory: ${{ github.workspace }}/Ishiiruka
         if: matrix.build_type == 'Playback'
