@@ -51,6 +51,7 @@ public:
     std::string GetRoomCode();
     static std::shared_ptr<SatsArenaRoomClient> Active();
     static void SetActive(const std::shared_ptr<SatsArenaRoomClient>& client);
+    static void ClearActive(const std::shared_ptr<SatsArenaRoomClient>& client);
     static bool SetCreateConfig(const SatsArenaNetplay::Config& config);
     static SatsArenaNetplay::Config CreateConfig();
     SatsArenaNetplay::Config GetConfig();

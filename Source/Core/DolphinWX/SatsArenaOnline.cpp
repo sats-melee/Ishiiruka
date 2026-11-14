@@ -565,6 +565,14 @@ private:
         if (!problem.empty() || (valid && view.phase == 7)) phase = compact = valid ? "Payments paused" : "Room connection interrupted";
         else if (closed) { phase = compact = m_slot == 0 ? "Room closed" : "Left room"; }
         else if (!client) { phase = "Create or join a room in Melee"; compact = "No room"; }
+        else if (free_room && state == SatsArenaRoomClient::Status::Waiting)
+        {
+            const auto joined = SatsArenaNetplay::JoinedPlayers(room);
+            phase = joined < config.player_count ?
+                wxString::Format("Waiting for players · %u / %u joined", joined, config.player_count) :
+                wxString("All players joined · preparing match");
+            compact = wxString::Format("%u / %u joined", joined, config.player_count);
+        }
         else if (!valid) { phase = m_slot < 0 ? "Connecting to room..." : "Free room · no entry payment"; compact = m_slot < 0 ? "Connecting" : "Free room"; }
         else if (view.phase == 3) phase = compact = "Match in progress";
         else if (view.phase == 6) phase = compact = "Settling payments";

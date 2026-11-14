@@ -97,6 +97,7 @@ class SlippiMatchmaking
 		u32 items;
 	};
 
+	void LeaveArenaRoomOnDestruction() { m_leaveArenaRoom = true; }
 	void FindMatch(MatchSearchSettings settings);
 	void MatchmakeThread();
 	ProcessState GetMatchmakeState();
@@ -162,6 +163,7 @@ class SlippiMatchmaking
 	std::vector<SlippiUser::UserInfo> m_playerInfo;
 	std::vector<u16> m_allowedStages;
 	bool m_joinedLobby;
+	bool m_leaveArenaRoom = false;
 	bool m_isHost;
 
 	std::unique_ptr<SlippiNetplayClient> m_netplayClient;

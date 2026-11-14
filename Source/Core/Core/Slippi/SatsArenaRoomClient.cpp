@@ -101,6 +101,15 @@ void SatsArenaRoomClient::SetActive(const std::shared_ptr<SatsArenaRoomClient>& 
     }
 }
 
+void SatsArenaRoomClient::ClearActive(const std::shared_ptr<SatsArenaRoomClient>& client)
+{
+    std::shared_ptr<SatsArenaRoomClient> previous;
+    {
+        std::lock_guard<std::mutex> lock(active_mutex);
+        if (active_client == client) previous = std::move(active_client);
+    }
+}
+
 bool SatsArenaRoomClient::SetCreateConfig(const SatsArenaNetplay::Config& config)
 {
     SatsArenaNetplay::Config validated;

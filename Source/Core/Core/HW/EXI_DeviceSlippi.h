@@ -261,7 +261,7 @@ class CEXISlippi : public IEXIDevice
 	void handleLogOutRequest();
 	void handleUpdateAppRequest();
 	void prepareOnlineStatus();
-	void handleConnectionCleanup();
+	void handleConnectionCleanup(bool preserveArenaRoom = true);
 	void prepareNewSeed();
 	void handleReportGame(const SlippiExiTypes::ReportGameQuery &query);
 	void handleOverwriteSelections(const SlippiExiTypes::OverwriteSelectionsQuery &query);

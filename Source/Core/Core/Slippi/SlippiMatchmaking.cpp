@@ -54,6 +54,7 @@ SlippiMatchmaking::~SlippiMatchmaking()
 		m_matchmakeThread.join();
 
 	terminateMmConnection();
+	if (m_leaveArenaRoom) SatsArenaRoomClient::ClearActive(std::atomic_load(&m_roomClient));
 	std::atomic_store(&m_roomClient, std::shared_ptr<SatsArenaRoomClient>{});
 }
 

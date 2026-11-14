@@ -206,6 +206,14 @@ inline bool Parse(const nlohmann::json& root, Room& result, std::string& error)
 	return true;
 }
 
+inline unsigned JoinedPlayers(const Room& room)
+{
+    unsigned joined = 0;
+    for (const auto& player : room.players)
+        joined += !player.name.empty();
+    return joined;
+}
+
 inline std::string PeerEndpoint(const Room& room, size_t slot)
 {
 	const auto& peer = room.players[slot];

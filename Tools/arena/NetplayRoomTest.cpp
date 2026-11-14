@@ -4,6 +4,15 @@
 
 int main()
 {
+    SatsArenaNetplay::Room waiting{};
+    waiting.players.resize(4);
+    assert(SatsArenaNetplay::JoinedPlayers(waiting) == 0);
+    waiting.players[0].name = "Host";
+    waiting.players[1].name = "Guest";
+    assert(SatsArenaNetplay::JoinedPlayers(waiting) == 2);
+    waiting.players[1].name.clear();
+    assert(SatsArenaNetplay::JoinedPlayers(waiting) == 1);
+
 #ifdef SATS_ARENA
 	unsetenv("SATS_ARENA_NETPLAY_FILE");
 	unsetenv("SATS_ARENA_NETPLAY_ROOMS");

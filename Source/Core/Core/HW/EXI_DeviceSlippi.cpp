@@ -3214,20 +3214,25 @@ void doConnectionCleanup(std::unique_ptr<SlippiMatchmaking> mm, std::unique_ptr<
 		nc.reset();
 }
 
-void CEXISlippi::handleConnectionCleanup()
+void CEXISlippi::handleConnectionCleanup(bool preserveArenaRoom)
 {
 	ERROR_LOG(SLIPPI_ONLINE, "Connection cleanup started...");
 
-	const auto room = SatsArenaRoomClient::Active();
+	auto room = SatsArenaRoomClient::Active();
 	SatsArenaNetplay::Room roomView;
 	std::string roomError;
 	const auto roomState = room ? room->Poll(roomView, roomError) : SatsArenaRoomClient::Status::Closed;
-	const bool resumeRoom = SatsArenaNetplay::ServerEnabled() && room &&
+	const bool resumeRoom = preserveArenaRoom && SatsArenaNetplay::ServerEnabled() && room &&
 	    roomState != SatsArenaRoomClient::Status::Closed && roomState != SatsArenaRoomClient::Status::Failed;
+	const auto roomCode = resumeRoom ? room->GetRoomCode() : std::string();
 	auto cleanupDone = std::make_shared<std::atomic<bool>>(false);
 	// Handle destructors in a separate thread to not block the main thread
-	std::thread cleanup([cleanupDone](std::unique_ptr<SlippiMatchmaking> mm, std::unique_ptr<SlippiNetplayClient> nc) {
+	std::thread cleanup([cleanupDone, resumeRoom, room = std::move(room)](std::unique_ptr<SlippiMatchmaking> mm, std::unique_ptr<SlippiNetplayClient> nc) mutable {
+		if (!resumeRoom && mm) mm->LeaveArenaRoomOnDestruction();
 		doConnectionCleanup(std::move(mm), std::move(nc));
+		// An old cleanup must never clear a newer emulator session's room.
+		if (!resumeRoom) SatsArenaRoomClient::ClearActive(room);
+		room.reset();
 		cleanupDone->store(true);
 	}, std::move(matchmaking), std::move(slippi_netplay));
 	cleanup.detach();
@@ -3238,7 +3243,7 @@ void CEXISlippi::handleConnectionCleanup()
 	{
 		SlippiMatchmaking::MatchSearchSettings search;
 		search.mode = SlippiMatchmaking::DIRECT;
-		search.connectCode = room->GetRoomCode();
+		search.connectCode = roomCode;
 		matchmaking->FindMatch(search);
 	}
 
@@ -3714,7 +3719,8 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
 			prepareOnlineStatus();
 			break;
 		case CMD_CLEANUP_CONNECTION:
-			handleConnectionCleanup();
+			// Explicit cancel/back must not resume the room.
+			handleConnectionCleanup(false);
 			break;
 		case CMD_LOG_MESSAGE:
 			logMessageFromGame(&memPtr[bufLoc + 1]);

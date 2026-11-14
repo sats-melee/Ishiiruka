@@ -9,6 +9,18 @@ extern const std::string scm_rev_git_str = "room-recovery-self-test";
 
 int main(int argc, char** argv)
 {
+    // Cancelled searches must not clear a newer session's panel.
+    auto oldRoom = std::make_shared<SatsArenaRoomClient>(false, "bad", "127.0.0.1:43511");
+    auto newRoom = std::make_shared<SatsArenaRoomClient>(false, "bad", "127.0.0.1:43512");
+    SatsArenaRoomClient::SetActive(oldRoom);
+    SatsArenaRoomClient::ClearActive(oldRoom);
+    assert(!SatsArenaRoomClient::Active());
+    SatsArenaRoomClient::SetActive(newRoom);
+    SatsArenaRoomClient::ClearActive(oldRoom);
+    assert(SatsArenaRoomClient::Active() == newRoom);
+    SatsArenaRoomClient::ClearActive(newRoom);
+    assert(!SatsArenaRoomClient::Active());
+
     const auto now = std::chrono::steady_clock::now();
     SatsArenaRoomClient::PingSnapshot samples{true, {}};
     assert(samples.WorstMilliseconds(0, 4, now) == 0);
